@@ -1,0 +1,234 @@
+/* === Base === */
+* { box-sizing: border-box; }
+::selection { background: rgba(139, 92, 246, 0.3); }
+
+/* === Scrollbar === */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; }
+
+/* === Sidebar === */
+.sidebar-closed { transform: translateX(-100%); }
+.sidebar-open { transform: translateX(0); }
+@media (min-width: 1024px) {
+  .sidebar-closed { transform: translateX(0); }
+}
+
+.chat-history-item {
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 13px;
+  color: #9ca3af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-history-item:hover { background: rgba(255,255,255,0.05); }
+.chat-history-item.active {
+  background: rgba(255,255,255,0.08);
+  color: #e5e7eb;
+}
+
+/* === Avatars === */
+.avatar-user {
+  width: 32px; height: 32px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  font-size: 12px; font-weight: 600; color: white;
+}
+.avatar-assistant {
+  width: 32px; height: 32px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  font-size: 12px; font-weight: 600; color: white;
+}
+
+/* === Typing Indicator === */
+.typing-dots { display: flex; align-items: center; gap: 4px; }
+.typing-dots .dot {
+  width: 7px; height: 7px;
+  background: #6b7280;
+  border-radius: 50%;
+  display: inline-block;
+  animation: dotPulse 1.4s ease-in-out infinite both;
+}
+.typing-dots .dot:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots .dot:nth-child(2) { animation-delay: -0.16s; }
+.typing-dots .dot:nth-child(3) { animation-delay: 0s; }
+@keyframes dotPulse {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* === Message Animation === */
+.msg-animate { animation: msgIn 0.3s ease-out; }
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* === Message Action Buttons === */
+.msg-actions {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.message-row:hover .msg-actions { opacity: 1; }
+
+/* === Status Dot === */
+.status-connecting { animation: statusPulse 1.5s ease-in-out infinite; }
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* === Markdown in Messages === */
+.msg-content h1, .msg-content h2, .msg-content h3 {
+  font-weight: 600; margin: 12px 0 6px 0;
+}
+.msg-content h1 { font-size: 1.25em; }
+.msg-content h2 { font-size: 1.1em; }
+.msg-content h3 { font-size: 1em; }
+.msg-content p { margin: 6px 0; }
+.msg-content ul, .msg-content ol { margin: 6px 0; padding-left: 20px; }
+.msg-content li { margin: 2px 0; }
+.msg-content strong { font-weight: 600; color: #e5e7eb; }
+.msg-content em { font-style: italic; }
+
+.msg-content pre {
+  background: #0d0d1a;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 10px 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  position: relative;
+}
+.msg-content code {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  background: rgba(255,255,255,0.05);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.88em;
+}
+.msg-content pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+.msg-content blockquote {
+  border-left: 3px solid rgba(139, 92, 246, 0.4);
+  padding-left: 12px;
+  color: #9ca3af;
+  margin: 8px 0;
+}
+.msg-content a {
+  color: #a78bfa;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.msg-content hr { border-color: rgba(255,255,255,0.06); margin: 12px 0; }
+.msg-content table { border-collapse: collapse; margin: 8px 0; width: 100%; font-size: 13px; }
+.msg-content th, .msg-content td { border: 1px solid rgba(255,255,255,0.08); padding: 6px 10px; text-align: left; }
+.msg-content th { background: rgba(255,255,255,0.03); font-weight: 600; }
+
+/* === Code Block Copy Button === */
+.code-copy-btn {
+  position: absolute;
+  top: 8px; right: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all 0.15s;
+  opacity: 0;
+}
+.msg-content pre:hover .code-copy-btn { opacity: 1; }
+.code-copy-btn:hover { background: rgba(255,255,255,0.12); color: #e5e7eb; }
+
+/* === Textarea === */
+#message-input { line-height: 1.55; font-family: inherit; }
+
+/* === Smooth scroll for chat === */
+#chat-container { scroll-behavior: smooth; }
+
+/* === Mobile responsive === */
+@media (max-width: 640px) {
+  .msg-content { font-size: 14px; }
+  .msg-actions { opacity: 1; }
+}
+
+/* === Prompt suggestions hover === */
+.prompt-suggestion:hover {
+  border-color: rgba(139, 92, 246, 0.2);
+}
+
+/* === Network Status Panel === */
+.block-bar {
+  display: flex;
+  gap: 2px;
+  padding: 4px 0;
+}
+.block-cell {
+  flex: 1;
+  height: 28px;
+  border-radius: 3px;
+  transition: all 0.2s;
+  cursor: default;
+  position: relative;
+}
+.block-cell:hover {
+  opacity: 0.8;
+  transform: scaleY(1.15);
+}
+.block-covered {
+  background: linear-gradient(to bottom, #22c55e, #16a34a);
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.3);
+}
+.block-missing {
+  background: linear-gradient(to bottom, #ef4444, #dc2626);
+  box-shadow: 0 0 4px rgba(239, 68, 68, 0.3);
+}
+
+.peer-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+  font-size: 12px;
+  gap: 8px;
+}
+.peer-item:hover {
+  background: rgba(255,255,255,0.04);
+}
+.peer-id {
+  color: #9ca3af;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.peer-blocks {
+  color: #a78bfa;
+  font-size: 11px;
+}
+.peer-throughput {
+  color: #22c55e;
+  font-size: 11px;
+  flex-shrink: 0;
+}
