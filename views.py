@@ -4,6 +4,7 @@ import json
 from flask import Flask, render_template
 
 import config
+import image_gen
 
 
 def render_index(app: Flask) -> str:
@@ -27,4 +28,5 @@ def render_index(app: Flask) -> str:
             model_badge=config.MODEL_BADGE,
             welcome_message=config.WELCOME_MESSAGE,
             show_petals_branding=config.SHOW_PETALS_BRANDING,
+            image_enabled=image_gen.is_enabled(),
         )

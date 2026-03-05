@@ -32,3 +32,4 @@ def main_page():
 import status_api
 import http_api
 import websocket_api
+import image_api

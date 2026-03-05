@@ -4,3 +4,7 @@ flask-sock
 flask-cors
 gunicorn[gthread]
 python-dotenv
+diffusers
+transformers
+accelerate
+safetensors
