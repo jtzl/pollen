@@ -32,6 +32,8 @@ IRC_NICKNAME = os.getenv("IRC_NICKNAME", "PollenBot")
 IRC_ENABLED = os.getenv("IRC_ENABLED", "true").lower() == "true"
 IRC_SSL = os.getenv("IRC_SSL", "true").lower() == "true"
 API_BASE = os.getenv("IRC_API_BASE", "http://127.0.0.1:5000")
+IMAGE_ENABLED = os.getenv("IMAGE_ENABLED", "false").lower() == "true"
+SERVER_BASE_URL = os.getenv("SERVER_BASE_URL", "http://54.166.153.249:5000")
 MAX_MSG_LEN = 300
 
 logging.basicConfig(
@@ -71,6 +73,30 @@ def api_generate(prompt):
         log.error("Generate failed: %s", e)
         return "(error: {})".format(e)
 
+
+
+def api_generate_image(prompt):
+    """Call the /api/generate-image endpoint and return the result."""
+    try:
+        import json as _json
+        data = _json.dumps({"prompt": prompt}).encode()
+        req = Request(
+            f"{API_BASE}/api/generate-image",
+            data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        with urlopen(req, timeout=300) as r:
+            resp = _json.loads(r.read())
+        if resp.get("ok"):
+            return {
+                "ok": True,
+                "url": f"{SERVER_BASE_URL}{resp['url']}",
+                "elapsed": resp.get("elapsed", 0),
+            }
+        return {"ok": False, "error": resp.get("error", "unknown")}
+    except Exception as e:
+        log.error("Image generation failed: %s", e)
+        return {"ok": False, "error": str(e)}
 
 def split_irc(text):
     """Split text into IRC-friendly chunks (max MAX_MSG_LEN chars each)."""
@@ -173,10 +199,11 @@ class PollenIRCBot(irc.bot.SingleServerIRCBot):
             "!speed": self._cmd_speed,
             "!model": self._cmd_model,
             "!help": self._cmd_help,
+            "!imagine": self._cmd_imagine,
         }.get(cmd)
         if handler:
             threading.Thread(
-                target=handler, args=(conn, target, nick), daemon=True
+                target=handler, args=(conn, target, nick, text), daemon=True
             ).start()
 
     def _reply(self, conn, target, nick, text):
@@ -184,7 +211,7 @@ class PollenIRCBot(irc.bot.SingleServerIRCBot):
             conn.privmsg(target, "{}: {}".format(nick, line))
             time.sleep(0.5)  # avoid flood
 
-    def _cmd_status(self, conn, target, nick):
+    def _cmd_status(self, conn, target, nick, text=None):
         data = api_get("/api/status")
         if not data.get("ok"):
             self._reply(conn, target, nick, "Status unavailable: {}".format(data.get("error", "?")))
@@ -199,7 +226,7 @@ class PollenIRCBot(irc.bot.SingleServerIRCBot):
         )
         self._reply(conn, target, nick, msg)
 
-    def _cmd_speed(self, conn, target, nick):
+    def _cmd_speed(self, conn, target, nick, text=None):
         data = api_get("/api/status")
         if not data.get("ok"):
             self._reply(conn, target, nick, "Speed unavailable")
@@ -207,7 +234,7 @@ class PollenIRCBot(irc.bot.SingleServerIRCBot):
         tps = data.get("tokens_per_second", 0)
         self._reply(conn, target, nick, "Current speed: {} tokens/sec".format(tps))
 
-    def _cmd_model(self, conn, target, nick):
+    def _cmd_model(self, conn, target, nick, text=None):
         data = api_get("/api/status")
         model = data.get("model_name", "unknown") if data.get("ok") else "unknown"
         try:
@@ -220,13 +247,29 @@ class PollenIRCBot(irc.bot.SingleServerIRCBot):
         except ImportError:
             self._reply(conn, target, nick, "Model: {}".format(model))
 
-    def _cmd_help(self, conn, target, nick):
+    def _cmd_help(self, conn, target, nick, text=None):
         self._reply(
             conn, target, nick,
             "Commands: !status (cluster info) | !speed (tokens/sec) "
-            "| !model (model info) | !help (this message). "
+            "| !model (model info) | !imagine <prompt> (generate image) | !help (this message). "
             "Mention {} to chat with Mixtral.".format(conn.get_nickname()),
         )
+
+
+    def _cmd_imagine(self, conn, target, nick, text=""):
+        if not IMAGE_ENABLED:
+            self._reply(conn, target, nick, "Image generation is disabled.")
+            return
+        prompt = text[len("!imagine"):].strip() if text.startswith("!imagine") else text.strip()
+        if not prompt:
+            self._reply(conn, target, nick, "Usage: !imagine <description of image>")
+            return
+        self._reply(conn, target, nick, "Generating image (this may take a few minutes on CPU)...")
+        result = api_generate_image(prompt)
+        if result.get("ok"):
+            self._reply(conn, target, nick, "Image ready ({elapsed}s): {url}".format(**result))
+        else:
+            self._reply(conn, target, nick, "Image generation failed: {error}".format(**result))
 
     # -- Mention handler (LLM) --
     def _handle_mention(self, conn, target, nick, text):

@@ -72,6 +72,9 @@
           <span id="status-dot" class="status-dot w-2 h-2 rounded-full bg-yellow-500 status-connecting"></span>
           <span id="status-text" class="hidden sm:inline">Connecting...</span>
         </div>
+        <button id="image-mode-btn" onclick="toggleImageMode()" class="p-1.5 rounded-lg hover:bg-white/5 transition-colors{% if not image_enabled %} hidden{% endif %}" title="Generate Image">
+          <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"/></svg>
+        </button>
         <button onclick="openNetworkStatus()" class="p-1.5 rounded-lg hover:bg-white/5 transition-colors" title="Network Status">
           <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.807-3.808-9.98 0-13.788m13.788 0c3.808 3.807 3.808 9.98 0 13.788M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
         </button>
@@ -128,6 +131,47 @@
       <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
       <span id="error-text"></span>
       <button onclick="retryConnection()" class="ml-1 underline hover:text-red-200 font-medium">Retry</button>
+    </div>
+
+
+    <!-- Image Generation Panel -->
+    <div id="image-panel" class="hidden border-t border-white/5 bg-surface-200/80 backdrop-blur-sm px-4 py-3">
+      <div class="max-w-3xl mx-auto">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-accent-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"/></svg>
+            <span class="text-sm font-medium text-gray-300">Image Generation</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-accent-500/20 text-accent-400 font-medium">Beta</span>
+          </div>
+          <button onclick="toggleImageMode()" class="text-gray-500 hover:text-gray-300 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="flex items-end gap-2">
+          <input id="image-prompt" type="text" placeholder="Describe the image you want to generate..."
+            class="flex-1 bg-panel-100 rounded-lg border border-white/10 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-accent-500/50 transition-colors"
+            onkeydown="if(event.key==='Enter')generateImage()">
+          <button id="image-gen-btn" onclick="generateImage()"
+            class="px-4 py-2 rounded-lg bg-accent-500 hover:bg-accent-600 text-white text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z"/></svg>
+            Generate
+          </button>
+        </div>
+        <div id="image-loading" class="hidden mt-3 flex items-center gap-3">
+          <div class="typing-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+          <span class="text-sm text-gray-400">Generating image (this may take a few minutes on CPU)...</span>
+        </div>
+        <div id="image-result" class="hidden mt-3">
+          <div class="relative inline-block rounded-xl overflow-hidden border border-white/10">
+            <img id="image-output" src="" alt="Generated image" class="max-w-full max-h-96 rounded-xl">
+          </div>
+          <div class="flex items-center gap-3 mt-2">
+            <span id="image-elapsed" class="text-[10px] text-gray-500"></span>
+            <a id="image-download" href="" download class="text-[10px] text-accent-400 hover:text-accent-300 transition-colors">Download</a>
+          </div>
+        </div>
+        <div id="image-error" class="hidden mt-3 text-sm text-red-400"></div>
+      </div>
     </div>
 
     <!-- Input Area -->
@@ -281,6 +325,66 @@
   </div>
 
   <script>
+
+    // ==================== Image Generation ====================
+    var imageEnabled = {{ image_enabled|tojson }};
+    var imageModeOpen = false;
+
+    function toggleImageMode() {
+      imageModeOpen = !imageModeOpen;
+      var panel = document.getElementById('image-panel');
+      var btn = document.getElementById('image-mode-btn');
+      if (imageModeOpen) {
+        panel.classList.remove('hidden');
+        btn.classList.add('bg-white/10');
+        document.getElementById('image-prompt').focus();
+      } else {
+        panel.classList.add('hidden');
+        btn.classList.remove('bg-white/10');
+      }
+    }
+
+    function generateImage() {
+      var promptEl = document.getElementById('image-prompt');
+      var prompt = promptEl.value.trim();
+      if (!prompt) return;
+
+      var btn = document.getElementById('image-gen-btn');
+      var loading = document.getElementById('image-loading');
+      var result = document.getElementById('image-result');
+      var errorEl = document.getElementById('image-error');
+
+      btn.disabled = true;
+      loading.classList.remove('hidden');
+      result.classList.add('hidden');
+      errorEl.classList.add('hidden');
+
+      fetch('/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: prompt })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        loading.classList.add('hidden');
+        btn.disabled = false;
+        if (data.ok) {
+          document.getElementById('image-output').src = data.url;
+          document.getElementById('image-download').href = data.url;
+          document.getElementById('image-elapsed').textContent = 'Generated in ' + data.elapsed + 's';
+          result.classList.remove('hidden');
+        } else {
+          errorEl.textContent = data.error || 'Generation failed';
+          errorEl.classList.remove('hidden');
+        }
+      })
+      .catch(function(err) {
+        loading.classList.add('hidden');
+        btn.disabled = false;
+        errorEl.textContent = 'Network error: ' + err.message;
+        errorEl.classList.remove('hidden');
+      });
+    }
     const modelConfigs = {{ model_config_json|safe }};
     const defaultModel = {{ default_model.backend.key|tojson|safe }};
   </script>
