@@ -27,7 +27,7 @@ def api_generate_image():
         return jsonify(
             ok=True,
             filename=result["filename"],
-            url=f"/static/generated/{result[filename]}",
+            url=f"/static/generated/{result["filename"]}",
             elapsed=result["elapsed"],
         )
     except Exception as e:
