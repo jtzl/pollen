@@ -8,6 +8,8 @@ from flask import request as http_request
 
 import config
 import speed_tracker
+import rag_pipeline
+import rag_search
 from app import models, sock
 from utils import safe_decode
 
@@ -29,11 +31,21 @@ def ws_api_generate(ws):
 
         with model.inference_session(max_length=max_length) as session:
             ws.send(json.dumps({"ok": True}))
+            rag_sources = []
 
             while True:
                 request = json.loads(ws.receive(timeout=config.STEP_TIMEOUT))
                 assert request["type"] == "generate"
                 inputs = request.get("inputs") or None
+                # RAG: augment user message with web search if needed
+                if inputs is not None:
+                    user_msg = rag_pipeline.extract_user_message(inputs)
+                    if rag_pipeline.needs_search(user_msg):
+                        search_results = rag_search.search(user_msg)
+                        if search_results:
+                            inputs = rag_pipeline.augment_prompt_in_place(inputs, search_results)
+                            rag_sources = search_results
+                            logger.info(f"ws.generate RAG augmented with {len(rag_sources)} results")
                 logger.info(f"ws.generate.step(), inputs={repr(inputs)}")
 
                 if inputs is not None:
@@ -60,10 +72,14 @@ def ws_api_generate(ws):
                     # HARD LIMIT: stop immediately if we've hit the token cap
                     if total_generated >= max_total_tokens:
                         stop = True
-                        ws.send(json.dumps({
+                        hard_stop_msg = {
                             "ok": True, "outputs": "", "stop": True,
                             "token_count": 0, "generated": total_generated,
-                        }))
+                        }
+                        if rag_sources:
+                            hard_stop_msg["rag_sources"] = [{"title": r["title"], "url": r["url"]} for r in rag_sources]
+                            rag_sources = []
+                        ws.send(json.dumps(hard_stop_msg))
                         break
 
                     outputs = model.generate(
@@ -108,10 +124,14 @@ def ws_api_generate(ws):
                         token_count = len(delta_q + delta)
                         delta_q = []
                         logger.info(f"ws.generate.step(), all_outputs={repr(all_outputs)}, stop={stop}, generated={total_generated}/{max_total_tokens}")
-                        ws.send(json.dumps({
+                        step_msg = {
                             "ok": True, "outputs": outputs, "stop": stop,
                             "token_count": token_count, "generated": total_generated,
-                        }))
+                        }
+                        if stop and rag_sources:
+                            step_msg["rag_sources"] = [{"title": r["title"], "url": r["url"]} for r in rag_sources]
+                            rag_sources = []
+                        ws.send(json.dumps(step_msg))
 
                 # Record generation speed for telemetry
                 if total_generated > 0:

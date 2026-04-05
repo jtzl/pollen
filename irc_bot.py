@@ -21,6 +21,7 @@ import irc.bot
 import irc.connection
 import irc.strings
 from dotenv import load_dotenv
+import rag_pipeline
 
 load_dotenv()
 
@@ -287,13 +288,15 @@ class PollenIRCBot(irc.bot.SingleServerIRCBot):
         if not clean:
             clean = "Hello!"
 
-        prompt = (
-            "[INST] You are {}, a helpful IRC bot powered by Mixtral "
-            "on the Petals network. Keep answers concise (under 250 chars). "
-            "User {} says: {} [/INST]"
-        ).format(IRC_NICKNAME, nick, clean)
+        # RAG: augment with web search if the message needs current info
+        prompt, rag_results = rag_pipeline.augment_for_irc(clean, IRC_NICKNAME, nick)
+        if rag_results:
+            log.info("RAG augmented IRC reply for %s with %d results", nick, len(rag_results))
         output = api_generate(prompt)
         self._reply(conn, target, nick, output)
+        if rag_results:
+            sources = " ".join(f"[{i+1}] {r['url']}" for i, r in enumerate(rag_results))
+            conn.privmsg(target, "Sources: {}".format(sources[:450]))
 
 
 # -- Main --

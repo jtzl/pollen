@@ -10,6 +10,7 @@ var tokenCount = 0;
 var generatedTokens = 0;
 var totalElapsed = 0;
 var generating = false;
+var lastAssistantCol = null;
 var forceStop = false;
 var messages = [];
 
@@ -200,6 +201,13 @@ function fixMissingSpaces(text) {
   // 8. Comma followed by letter: "however,there" -> "however, there"
   text = text.replace(/,([a-zA-Z])/g, ", $1");
 
+  // 9. Numbered list items jammed together: "text.2." or "text)2." or "AI: 1." -> newline before number
+  text = text.replace(/([.\)!?:])\s*(\d{1,3}\.)/g, "$1\n$2");
+
+  // 10. Bullet points jammed after sentences: "concerns.* Growing" -> "concerns.\n* Growing"
+  //     Also handles colon before bullet: "AI:* Reuters" -> "AI:\n* Reuters"
+  text = text.replace(/([.\)!?:])\s*(\*\s)/g, "$1\n$2");
+
   // Restore protected content
   text = text.replace(/\x00#(\d+)\x00/g, function(_, idx) {
     return preserved[parseInt(idx)];
@@ -212,6 +220,10 @@ function renderMarkdown(text) {
   if (typeof marked !== 'undefined' && text) {
     try {
       text = fixMissingSpaces(text);
+      // Ensure paragraph breaks between sections: double-newline before lines
+      // starting with a bold header like **Title** or a numbered header like "1. **"
+      text = text.replace(/([^\n])\n(\*\*[A-Z])/g, "$1\n\n$2");
+      text = text.replace(/([^\n])\n(\d{1,2}\.\s+\*\*)/g, "$1\n\n$2");
       var html = marked.parse(text);
       html = html.replace(/<pre>/g, '<pre><button class="code-copy-btn" onclick="copyCode(this)">Copy</button>');
       return html;
@@ -220,10 +232,55 @@ function renderMarkdown(text) {
   return escapeHtml(text);
 }
 
+
+
+function linkifyCitations(html, sources) {
+  if (!sources || sources.length === 0) return html;
+  // Replace [1], [2], etc. with clickable inline links
+  return html.replace(/\[(\d+)\]/g, function(match, num) {
+    var idx = parseInt(num) - 1;
+    if (idx < 0 || idx >= sources.length) return match;
+    var s = sources[idx];
+    return '<a href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener noreferrer" ' +
+           'class="rag-inline-cite" title="' + escapeHtml(s.title || s.url) + '">[' + num + ']</a>';
+  });
+}
+
 function escapeHtml(text) {
   var d = document.createElement('div');
   d.textContent = text || '';
   return d.innerHTML;
+}
+
+
+function renderRagSources(sources, colEl) {
+  if (!sources || sources.length === 0) return;
+  var container = document.createElement('div');
+  container.className = 'rag-sources';
+  var label = document.createElement('span');
+  label.className = 'rag-sources-label';
+  label.textContent = 'Sources';
+  container.appendChild(label);
+  for (var i = 0; i < sources.length; i++) {
+    var s = sources[i];
+    var link = document.createElement('a');
+    link.href = s.url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'rag-source-link';
+    var domain = '';
+    try { domain = new URL(s.url).hostname.replace(/^www\./, ''); } catch(e) { domain = s.url; }
+    link.innerHTML = '<span class="rag-source-title">' + escapeHtml(s.title || domain) + '</span>' +
+                     '<span class="rag-source-domain">' + escapeHtml(domain) + '</span>';
+    container.appendChild(link);
+  }
+  // Insert after the bubble but before the meta row
+  var metaEl = colEl.querySelector('.flex.items-center.gap-2.mt-1');
+  if (metaEl) {
+    colEl.insertBefore(container, metaEl);
+  } else {
+    colEl.appendChild(container);
+  }
 }
 
 function addMessage(role, content, time) {
@@ -290,7 +347,7 @@ function addMessage(role, content, time) {
   row.appendChild(col);
   messagesEl.appendChild(row);
   scrollToBottom();
-  return textEl;
+  return { textEl: textEl, colEl: col };
 }
 
 function getLastAssistantContent() {
@@ -317,7 +374,14 @@ function rebuildMessages() {
   }
   if (welcomeScreen) welcomeScreen.style.display = 'none';
   for (var i = 0; i < messages.length; i++) {
-    addMessage(messages[i].role, messages[i].content, messages[i].time);
+    var refs = addMessage(messages[i].role, messages[i].content, messages[i].time);
+    if (messages[i].rag_sources && messages[i].rag_sources.length > 0) {
+      var contentEl = refs.colEl.querySelector('.msg-content');
+      if (contentEl) {
+        contentEl.innerHTML = linkifyCitations(contentEl.innerHTML, messages[i].rag_sources);
+      }
+      renderRagSources(messages[i].rag_sources, refs.colEl);
+    }
   }
 }
 
@@ -417,7 +481,8 @@ function sendMessage() {
   addMessage('user', text, now);
 
   messages.push({ role: 'assistant', content: '', time: new Date() });
-  addMessage('assistant', '', new Date());
+  var msgRefs = addMessage('assistant', '', new Date());
+  lastAssistantCol = msgRefs.colEl;
 
   showTyping();
   setGenerating(true);
@@ -455,6 +520,7 @@ function stopGenerating() {
   tokenCount = 0; totalElapsed = 0;
   hideTokenCounter();
   enableInput();
+  lastAssistantCol = null;
   saveCurrentConversation();
   renderChatHistory();
   openSession().catch(function(err) { showError('Reconnection failed: ' + err); });
@@ -575,14 +641,38 @@ function receiveReplica(prompt) {
       var trimmed = trimToLastSentence(messages[messages.length - 1].content);
       messages[messages.length - 1].content = trimmed;
       updateLastAssistant(trimmed);
+      if (response.rag_sources && response.rag_sources.length > 0 && lastAssistantCol) {
+        var contentEl = lastAssistantCol.querySelector('.msg-content');
+        if (contentEl) {
+          var rawText = messages[messages.length - 1].content;
+          contentEl.innerHTML = linkifyCitations(renderMarkdown(rawText), response.rag_sources);
+        }
+        renderRagSources(response.rag_sources, lastAssistantCol);
+        messages[messages.length - 1].rag_sources = response.rag_sources;
+      }
       setGenerating(false);
       tokenCount = 0; totalElapsed = 0;
       hideTokenCounter();
       enableInput();
       position = 0;
+      lastAssistantCol = null;
       saveCurrentConversation();
       renderChatHistory();
       return;
+    }
+
+    if (response.rag_sources) {
+      console.log('[RAG] Received rag_sources in WS message:', response.rag_sources, 'lastAssistantCol:', !!lastAssistantCol);
+    }
+    if (response.rag_sources && response.rag_sources.length > 0 && lastAssistantCol) {
+      // Re-render content with inline citation links
+      var contentEl = lastAssistantCol.querySelector('.msg-content');
+      if (contentEl) {
+        var rawText = messages[messages.length - 1].content;
+        contentEl.innerHTML = linkifyCitations(renderMarkdown(rawText), response.rag_sources);
+      }
+      renderRagSources(response.rag_sources, lastAssistantCol);
+      messages[messages.length - 1].rag_sources = response.rag_sources;
     }
 
     if (response.stop || forceStop) {
@@ -592,6 +682,7 @@ function receiveReplica(prompt) {
       hideTokenCounter();
       enableInput();
       position = 0;
+      lastAssistantCol = null;
       saveCurrentConversation();
       renderChatHistory();
       return;

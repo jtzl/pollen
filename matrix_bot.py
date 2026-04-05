@@ -15,6 +15,7 @@ import time
 from urllib.request import urlopen, Request
 
 from dotenv import load_dotenv
+import rag_pipeline
 from nio import AsyncClient, MatrixRoom, RoomMessageText, InviteMemberEvent
 
 load_dotenv()
@@ -241,12 +242,15 @@ class PollenMatrixBot:
         if not clean:
             clean = "Hello!"
 
-        prompt = (
-            "[INST] You are {}, a helpful Matrix bot powered by Mixtral "
-            "on the Petals network. Keep answers concise (under 300 chars). "
-            "User {} says: {} [/INST]"
-        ).format(BOT_DISPLAY_NAME, sender, clean)
-        return api_generate(prompt)
+        # RAG: augment with web search if the message needs current info
+        prompt, rag_results = rag_pipeline.augment_for_irc(clean, BOT_DISPLAY_NAME, sender)
+        if rag_results:
+            log.info("RAG augmented Matrix reply for %s with %d results", sender, len(rag_results))
+        output = api_generate(prompt)
+        if rag_results:
+            sources = " ".join(f"[{i+1}] {r['url']}" for i, r in enumerate(rag_results))
+            output += "\nSources: " + sources
+        return output
 
     async def _send(self, room_id, text, thread_root=None):
         text = truncate(text)

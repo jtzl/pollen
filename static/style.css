@@ -232,3 +232,71 @@
   font-size: 11px;
   flex-shrink: 0;
 }
+
+/* === RAG Source Citations === */
+.rag-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 0 2px;
+}
+.rag-sources-label {
+  font-size: 10px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  margin-right: 2px;
+}
+.rag-source-link {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  text-decoration: none;
+  transition: all 0.15s ease;
+  max-width: 200px;
+}
+.rag-source-link:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(139, 92, 246, 0.25);
+}
+.rag-source-title {
+  font-size: 11px;
+  color: #a78bfa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+.rag-source-domain {
+  font-size: 9px;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+/* === Inline Citation Links === */
+.rag-inline-cite {
+  color: #a78bfa;
+  text-decoration: none;
+  font-size: 0.8em;
+  font-weight: 600;
+  vertical-align: super;
+  line-height: 1;
+  padding: 0 1px;
+  border-radius: 2px;
+  transition: all 0.15s ease;
+}
+.rag-inline-cite:hover {
+  color: #c4b5fd;
+  background: rgba(167, 139, 250, 0.15);
+  text-decoration: none;
+}
