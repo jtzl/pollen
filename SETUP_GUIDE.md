@@ -8,6 +8,7 @@ A plain-English walkthrough from zero to running Pollen cluster. This guide assu
 
 ## Table of Contents
 
+0. [Pre-flight checklist](#pre-flight-checklist)
 1. [What you're building](#what-youre-building)
 2. [Get a server](#step-1-get-a-server)
 3. [Install GPU drivers](#step-2-install-gpu-drivers)
@@ -19,6 +20,43 @@ A plain-English walkthrough from zero to running Pollen cluster. This guide assu
 9. [Join an existing cluster](#step-8-join-an-existing-cluster)
 10. [Verify it works](#step-9-verify-it-works)
 11. [What to do if something goes wrong](#what-to-do-if-something-goes-wrong)
+12. [GPU driver troubleshooting](#gpu-driver-troubleshooting)
+
+---
+
+## Pre-flight checklist
+
+Run these checks before starting the install. Catching issues here saves hours of debugging later.
+
+```bash
+# 1. GPU driver loaded?
+nvidia-smi
+# Expected: table showing GPU name, driver version, CUDA version
+# If "command not found": install drivers first (Step 2)
+# If driver/CUDA mismatch errors: see GPU Driver Troubleshooting below
+
+# 2. Python version?
+python3 --version
+# Expected: Python 3.10.x or 3.11.x (recommended)
+# 3.8/3.9 work but some dependencies need older pinned versions
+# 3.12+ may have compatibility issues with certain packages
+
+# 3. Disk space?
+df -h /data 2>/dev/null || df -h /
+# Expected: at least 20 GB free (50 GB+ recommended for model weights cache)
+# Mixtral 8x7B weights are ~90 GB on first download
+
+# 4. Memory?
+free -h
+# Expected: at least 4 GB total (8 GB+ recommended)
+
+# 5. pip and setuptools working?
+python3 -m pip --version
+python3 -c "import pkg_resources; print(pkg_resources.__version__)"
+# If pkg_resources fails: pip install --upgrade setuptools wheel
+```
+
+If all five checks pass, proceed to Step 1. If any fail, fix them first or check the [GPU Driver Troubleshooting](#gpu-driver-troubleshooting) section at the bottom of this guide.
 
 ---
 
@@ -515,3 +553,188 @@ sudo ./install.sh
 - **Enable bots** to bring the model into IRC or Matrix channels
 - **Add more GPUs** to the cluster for better performance and redundancy
 - **Check the Petals docs** at [petals.dev](https://petals.dev) for advanced networking and tuning
+
+---
+
+## GPU driver troubleshooting
+
+Real-world issues collected from user feedback. If your problem is not listed here, check the NVIDIA forums or file an issue on the Pollen repository.
+
+### NVIDIA driver version conflict (535 vs 580)
+
+**Symptom:** `nvidia-smi` fails after installing a new driver, or shows the wrong version. DKMS errors during install mentioning both `nvidia-dkms-535` and `nvidia-dkms-580`.
+
+**Cause:** Two driver versions installed side by side. Ubuntu does not always cleanly remove the old one when you install a newer version.
+
+**Fix:**
+
+```bash
+# Remove the old driver completely
+sudo apt remove --purge nvidia-dkms-535 nvidia-driver-535
+sudo apt autoremove
+
+# Verify only one driver version remains
+dpkg -l | grep nvidia-driver
+# Should show only one version (e.g., nvidia-driver-580)
+
+# Rebuild DKMS modules for the remaining driver
+sudo dkms autoinstall
+
+# Reboot
+sudo reboot
+
+# Verify
+nvidia-smi
+```
+
+If you are not sure which version to keep, remove both and do a clean install of the version recommended for your GPU.
+
+### hivemind build fails: "No module named pkg_resources"
+
+**Symptom:** Installing Petals or hivemind fails with:
+
+```
+ModuleNotFoundError: No module named 'pkg_resources'
+```
+
+**Cause:** The `setuptools` package is missing or broken. This happens on minimal Python installs or after a botched upgrade. Python 3.12+ removed `pkg_resources` from the standard library, making this more common.
+
+**Fix:**
+
+```bash
+# Install/upgrade setuptools and wheel
+pip install --upgrade setuptools wheel
+
+# If that fails too, bootstrap pip first
+python3 -m ensurepip --upgrade
+pip install --upgrade setuptools wheel
+
+# Retry the original install
+pip install hivemind
+```
+
+### Python 3.10 vs 3.12 compatibility
+
+**Symptom:** Various `ImportError` or `AttributeError` failures during install, especially with `hivemind`, `bitsandbytes`, or `petals` packages.
+
+**Cause:** Some Petals dependencies were written for Python 3.10/3.11 and have not been fully updated for 3.12+. Key differences:
+
+- `pkg_resources` removed from stdlib in 3.12 (now requires `setuptools`)
+- `asyncio` internal changes can break older hivemind versions
+- Some C extensions need recompilation for the new Python ABI
+
+**Recommendation:**
+
+- **Use Python 3.10 or 3.11** for the most reliable experience
+- If you must use 3.12+, install the latest versions of all dependencies and be prepared to troubleshoot
+- You can install Python 3.10 alongside a newer system Python:
+
+```bash
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install python3.10 python3.10-venv python3.10-dev
+
+# Create a venv with 3.10 specifically
+python3.10 -m venv /data/petals-env
+source /data/petals-env/bin/activate
+```
+
+### dpkg broken packages
+
+**Symptom:** Any `apt install` command fails with:
+
+```
+E: Unmet dependencies. Try 'apt --fix-broken install' with no packages
+dpkg: error processing package nvidia-dkms-XXX (--configure):
+```
+
+**Cause:** A previous install was interrupted (power loss, Ctrl+C, SSH disconnect) or conflicting packages left dpkg in a broken state.
+
+**Fix:**
+
+```bash
+# Step 1: Let dpkg finish any interrupted configurations
+sudo dpkg --configure -a
+
+# Step 2: Fix broken dependencies
+sudo apt --fix-broken install
+
+# Step 3: Clean up
+sudo apt autoremove
+sudo apt autoclean
+
+# Step 4: Retry your original install
+sudo apt update
+sudo apt install -y nvidia-driver-580  # or whatever you were installing
+```
+
+If Step 1 hangs on a specific package, you may need to force-remove it first:
+
+```bash
+sudo dpkg --remove --force-remove-reinstreq PACKAGE_NAME
+sudo apt --fix-broken install
+```
+
+### Multiple kernel versions causing driver build failures
+
+**Symptom:** DKMS errors during NVIDIA driver install, mentioning kernel versions you don't recognize. Messages like:
+
+```
+Error! Bad return status for module build on kernel: 5.15.0-78-generic
+```
+
+**Cause:** Ubuntu keeps old kernel versions when you run `apt upgrade`. DKMS (Dynamic Kernel Module Support) tries to build the NVIDIA driver module for every installed kernel. If an old kernel's headers are missing or incompatible, the build fails even though your running kernel is fine.
+
+**Fix:**
+
+```bash
+# See which kernel you're actually running
+uname -r
+# e.g., 6.5.0-44-generic
+
+# List all installed kernels
+dpkg -l | grep linux-image | grep -v meta
+
+# Remove old kernels you are NOT running (be careful here!)
+# Replace VERSION with the old kernel version
+sudo apt remove --purge linux-image-5.15.0-78-generic linux-headers-5.15.0-78-generic
+
+# Clean up
+sudo apt autoremove
+
+# Retry the driver install
+sudo apt install -y nvidia-driver-580
+
+# Verify DKMS only shows your current kernel
+dkms status
+```
+
+**Important:** Never remove the kernel you are currently running (`uname -r`). Only remove old versions you have confirmed you don't need. When in doubt, keep the two most recent kernel versions as a safety net.
+
+### Quick reference: clean driver reinstall
+
+If nothing above works and you want to start fresh with GPU drivers:
+
+```bash
+# Remove ALL nvidia packages
+sudo apt remove --purge 'nvidia-*' 'libnvidia-*'
+sudo apt autoremove
+
+# Remove old kernels (keep current + one backup)
+# Check current: uname -r
+
+# Fix any broken state
+sudo dpkg --configure -a
+sudo apt --fix-broken install
+
+# Update everything
+sudo apt update && sudo apt upgrade -y
+
+# Install the driver fresh
+sudo apt install -y nvidia-driver-580
+sudo reboot
+
+# Verify
+nvidia-smi
+```
+

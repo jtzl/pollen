@@ -31,3 +31,4 @@ Thumbs.db
 # Gunicorn
 gunicorn.ctl
 gunicorn.pid
+static/generated/
