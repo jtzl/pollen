@@ -12,6 +12,13 @@ ENV_FILE="$REPO_DIR/.env"
 ENV_EXAMPLE="$REPO_DIR/.env.example"
 WATCHDOG_LOG="/var/log/pollen-watchdog.log"
 
+# Detect the real (non-root) user running the install
+if [ -n "${SUDO_USER:-}" ]; then
+    RUN_USER="$SUDO_USER"
+else
+    RUN_USER="$(whoami)"
+fi
+
 # -- Colors --
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -182,7 +189,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=$RUN_USER
 WorkingDirectory=$REPO_DIR
 ExecStart=$PYTHON_BIN -m petals.cli.run_dht --host_maddrs /ip4/0.0.0.0/tcp/31337 --announce_maddrs /ip4/$PUBLIC_IP/tcp/31337
 Restart=always
@@ -210,7 +217,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=$RUN_USER
 WorkingDirectory=$REPO_DIR
 ExecStart=$PYTHON_BIN -m petals.cli.run_server $MODEL_VAL $PEERS_FLAG --port 31338
 Restart=always
@@ -233,7 +240,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=$RUN_USER
 WorkingDirectory=$REPO_DIR
 ExecStart=$GUNICORN_BIN app:app --bind 0.0.0.0:$PORT_VAL --worker-class gthread --threads 10 --timeout 600
 Restart=always
@@ -254,7 +261,7 @@ Wants=petals-chat.service
 
 [Service]
 Type=simple
-User=ubuntu
+User=$RUN_USER
 WorkingDirectory=$REPO_DIR
 ExecStart=$PYTHON_BIN $REPO_DIR/irc_bot.py
 Restart=always
@@ -275,7 +282,7 @@ Wants=petals-chat.service
 
 [Service]
 Type=simple
-User=ubuntu
+User=$RUN_USER
 WorkingDirectory=$REPO_DIR
 ExecStart=$PYTHON_BIN $REPO_DIR/matrix_bot.py
 Restart=always
@@ -293,7 +300,7 @@ ok "pollen-matrix.service created"
 header "Setting up health watchdog"
 
 sudo touch "$WATCHDOG_LOG"
-sudo chown ubuntu:ubuntu "$WATCHDOG_LOG"
+sudo chown $RUN_USER:$RUN_USER "$WATCHDOG_LOG"
 
 CRON_LINE="*/5 * * * * /bin/bash $REPO_DIR/watchdog.sh >> $WATCHDOG_LOG 2>&1"
 (crontab -l 2>/dev/null | grep -v "watchdog.sh" || true; echo "$CRON_LINE") | crontab -
