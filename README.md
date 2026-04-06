@@ -31,7 +31,7 @@ Think of it as BitTorrent for AI inference: each node serves a few layers of the
 ## Quick Start
 
 ```bash
-git clone https://github.com/nalamk/pollen.git
+git clone https://github.com/jtzl/pollen.git
 cd pollen
 sudo ./install.sh
 ```
@@ -54,7 +54,7 @@ If you prefer to set things up yourself:
 ### 1. Clone and enter the repository
 
 ```bash
-git clone https://github.com/nalamk/pollen.git
+git clone https://github.com/jtzl/pollen.git
 cd pollen
 ```
 
@@ -546,7 +546,7 @@ Contributions are welcome. Here's how to get started:
 ### Setting up for development
 
 ```bash
-git clone https://github.com/nalamk/pollen.git
+git clone https://github.com/jtzl/pollen.git
 cd pollen
 python3 -m venv venv
 source venv/bin/activate
