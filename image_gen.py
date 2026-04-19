@@ -26,6 +26,8 @@ IMAGE_STEPS = int(os.getenv("IMAGE_STEPS", "4"))
 IMAGE_WIDTH = int(os.getenv("IMAGE_WIDTH", "512"))
 IMAGE_HEIGHT = int(os.getenv("IMAGE_HEIGHT", "512"))
 IMAGE_OUTPUT_DIR = os.getenv("IMAGE_OUTPUT_DIR", "/data/chat-ui/static/generated")
+IMAGE_REMOTE_URL = os.getenv("IMAGE_REMOTE_URL", "").strip()
+IMAGE_REMOTE_TIMEOUT = int(os.getenv("IMAGE_REMOTE_TIMEOUT", "120"))
 
 # -- Module state --
 _pipeline = None
@@ -89,6 +91,8 @@ def is_loading():
 
 
 def is_ready():
+    if IMAGE_REMOTE_URL:
+        return True
     return _pipeline is not None
 
 
@@ -98,6 +102,8 @@ def generate_image(prompt, steps=None, width=None, height=None, guidance_scale=0
     Returns:
         dict with keys: ok, filename, path, elapsed
     """
+    if IMAGE_REMOTE_URL:
+        return _generate_remote(prompt, steps=steps, width=width, height=height)
     pipe = get_pipeline()
     _ensure_output_dir()
 
@@ -138,3 +144,41 @@ def generate_image(prompt, steps=None, width=None, height=None, guidance_scale=0
         "path": filepath,
         "elapsed": round(elapsed, 1),
     }
+
+
+def _generate_remote(prompt, steps=None, width=None, height=None):
+    """Proxy image generation to IMAGE_REMOTE_URL and save the returned image locally."""
+    import base64
+    import requests
+
+    payload = {"prompt": prompt}
+    if steps is not None:
+        payload["steps"] = steps
+    if width is not None:
+        payload["width"] = width
+    if height is not None:
+        payload["height"] = height
+
+    _ensure_output_dir()
+    log.info("Proxying image request to %s", IMAGE_REMOTE_URL)
+    start = time.time()
+    resp = requests.post(IMAGE_REMOTE_URL, json=payload, timeout=IMAGE_REMOTE_TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("ok"):
+        raise RuntimeError(data.get("error", "remote error"))
+
+    filename = data["filename"]
+    filepath = os.path.join(IMAGE_OUTPUT_DIR, filename)
+    with open(filepath, "wb") as f:
+        f.write(base64.b64decode(data["image_b64"]))
+
+    elapsed = time.time() - start
+    log.info("Remote image received in %.1fs -> %s", elapsed, filepath)
+    return {
+        "ok": True,
+        "filename": filename,
+        "path": filepath,
+        "elapsed": data.get("elapsed", round(elapsed, 1)),
+    }
+

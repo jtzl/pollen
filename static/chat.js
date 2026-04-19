@@ -253,6 +253,15 @@ function escapeHtml(text) {
 }
 
 
+function titleFromUrl(url) {
+  try {
+    var u = new URL(url);
+    var seg = u.pathname.split('/').filter(Boolean).pop() || '';
+    seg = decodeURIComponent(seg).replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[_\-]+/g, ' ').trim();
+    if (seg.length >= 3) return seg.charAt(0).toUpperCase() + seg.slice(1);
+  } catch (e) {}
+  return '';
+}
 function renderRagSources(sources, colEl) {
   if (!sources || sources.length === 0) return;
   var container = document.createElement('div');
@@ -270,7 +279,10 @@ function renderRagSources(sources, colEl) {
     link.className = 'rag-source-link';
     var domain = '';
     try { domain = new URL(s.url).hostname.replace(/^www\./, ''); } catch(e) { domain = s.url; }
-    link.innerHTML = '<span class="rag-source-title">' + escapeHtml(s.title || domain) + '</span>' +
+    var title = (s.title && s.title.trim()) ? s.title.trim() : (titleFromUrl(s.url) || domain);
+    link.title = (s.title ? s.title + ' \u2014 ' : '') + s.url;
+    link.innerHTML = '<span class="rag-source-index">' + (i + 1) + '</span>' +
+                     '<span class="rag-source-title">' + escapeHtml(title) + '</span>' +
                      '<span class="rag-source-domain">' + escapeHtml(domain) + '</span>';
     container.appendChild(link);
   }
@@ -438,11 +450,32 @@ function hideTokenCounter() {
 }
 
 function trimToLastSentence(text) {
-  var lastDot = text.lastIndexOf(".");
-  var lastBang = text.lastIndexOf("\!");
-  var lastQ = text.lastIndexOf("?");
-  var lastEnd = Math.max(lastDot, lastBang, lastQ);
-  if (lastEnd > 0) return text.substring(0, lastEnd + 1);
+  if (!text) return text;
+  // Scan right-to-left for the last sentence-terminator (. ! ?) that is
+  // followed by whitespace or end-of-string, so mid-word '?' in URLs or
+  // decimals like "3.14" don't get treated as sentence ends.
+  for (var i = text.length - 1; i >= 0; i--) {
+    var ch = text.charAt(i);
+    if (ch === '.' || ch === '!' || ch === '?') {
+      var prev = text.charAt(i - 1);
+      var next = text.charAt(i + 1);
+      // Skip decimals: digit on both sides of '.'
+      if (ch === '.' && prev >= '0' && prev <= '9' && next >= '0' && next <= '9') continue;
+      // Accept only if the terminator is followed by end-of-string, whitespace,
+      // or common closing punctuation (quote/bracket/paren).
+      if (next === '' || /\s/.test(next) || next === '"' || next === "'" || next === ')' || next === ']' || next === '}') {
+        // Consume any trailing closing quote/bracket so "sentence." becomes "sentence."
+        var end = i + 1;
+        while (end < text.length && /['"\)\]\}]/.test(text.charAt(end))) end++;
+        return text.substring(0, end);
+      }
+    }
+  }
+  // Fallback: no clean terminator found. Cut at the last whitespace to avoid
+  // ending mid-word; only apply if that preserves at least 60% of the text.
+  var trimmed = text.replace(/\s+$/, '');
+  var lastSpace = trimmed.lastIndexOf(' ');
+  if (lastSpace > trimmed.length * 0.6) return trimmed.substring(0, lastSpace);
   return text;
 }
 
@@ -791,23 +824,64 @@ function renderNetworkStatus(data) {
     bar.appendChild(cell);
   }
 
-  // Render peer list
-  var peerList = document.getElementById('ns-peer-list');
-  peerList.innerHTML = '';
-  if (data.peers.length === 0) {
-    peerList.innerHTML = '<div class="text-xs text-gray-500 py-3 text-center">No peers online</div>';
+  // Render node cards
+  var nodesList = document.getElementById('ns-nodes-list');
+  nodesList.innerHTML = '';
+  var nodes = data.nodes || [];
+  if (nodes.length === 0) {
+    nodesList.innerHTML = '<div class="text-xs text-gray-500 py-3 text-center">No nodes configured</div>';
     return;
   }
-  for (var j = 0; j < data.peers.length; j++) {
-    var p = data.peers[j];
-    var item = document.createElement('div');
-    item.className = 'peer-item';
-    var endBlock = p.end - 1;
-    item.innerHTML =
-      '<span class="peer-id">...' + escapeHtml(p.peer_id) + '</span>' +
-      '<span class="peer-blocks">Blocks ' + p.start + '-' + endBlock + ' (' + p.length + ')</span>' +
-      '<span class="peer-throughput">' + p.throughput + ' tok/s</span>';
-    peerList.appendChild(item);
+  for (var j = 0; j < nodes.length; j++) {
+    var n = nodes[j];
+    var isUp = n.status === 'up';
+    var card = document.createElement('div');
+    card.className = 'node-card' + (isUp ? '' : ' offline');
+
+    var endBlock = n.blocks_end !== null ? n.blocks_end - 1 : '-';
+    var startBlock = n.blocks_start !== null ? n.blocks_start : '-';
+    var blockText = isUp ? 'Blocks ' + startBlock + '-' + endBlock + ' (' + n.num_blocks + ')' : 'No blocks';
+    var throughputText = isUp ? n.throughput + ' tok/s' : '-';
+
+    var statusDotColor = isUp ? 'node-status-dot up' : 'node-status-dot down';
+    var statusBadge = isUp ? '' : '<span class="node-offline-badge ml-2">OFFLINE</span>';
+
+    var vramHtml = '';
+    if (n.vram_used_mb !== null && n.vram_total_mb !== null) {
+      var pct = Math.round((n.vram_used_mb / n.vram_total_mb) * 100);
+      var barLevel = pct > 90 ? 'high' : pct > 70 ? 'medium' : 'low';
+      var usedGB = (n.vram_used_mb / 1024).toFixed(1);
+      var totalGB = (n.vram_total_mb / 1024).toFixed(1);
+      vramHtml =
+        '<div class="vram-section">' +
+          '<div class="vram-label">' +
+            '<span class="text-gray-500">VRAM</span>' +
+            '<span class="text-gray-400">' + usedGB + ' / ' + totalGB + ' GB (' + pct + '%)</span>' +
+          '</div>' +
+          '<div class="vram-bar-track">' +
+            '<div class="vram-bar-fill ' + barLevel + '" style="width:' + pct + '%"></div>' +
+          '</div>' +
+        '</div>';
+    } else if (isUp) {
+      vramHtml = '<div class="vram-section"><span class="text-[10px] text-gray-600">VRAM: unavailable</span></div>';
+    }
+
+    card.innerHTML =
+      '<div class="flex items-center justify-between mb-1.5">' +
+        '<div class="flex items-center gap-2">' +
+          '<span class="' + statusDotColor + '">&nbsp;</span>' +
+          '<span class="text-sm font-medium text-gray-200">' + escapeHtml(n.name) + '</span>' +
+          statusBadge +
+        '</div>' +
+        '<span class="text-[10px] text-gray-500 font-mono">' + escapeHtml(n.peer_id) + '</span>' +
+      '</div>' +
+      '<div class="node-info">' +
+        '<span>' + blockText + '</span>' +
+        '<span>' + throughputText + '</span>' +
+      '</div>' +
+      vramHtml;
+
+    nodesList.appendChild(card);
   }
 }
 

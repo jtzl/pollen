@@ -7,39 +7,106 @@ import rag_search
 
 log = logging.getLogger("rag_pipeline")
 
-# Keywords/patterns that suggest the user wants current or factual info
-_CURRENT_INFO_PATTERNS = [
+# Factual signals: current events, stats, comparisons, recommendations,
+# history/definitions/causes — aggressive trigger for search.
+_FACTUAL_PATTERNS = [
+    # Current events / time-bounded
     r"\b(latest|recent|current|today|tonight|yesterday|this week|this month|this year)\b",
-    r"\b(news|update|score|price|weather|stock|release|announced|happened|launched)\b",
-    r"\b(who is|who was|where is|when is|when was|when did)\b",
-    r"\b(how much does|how many|how to get|how to find|where can|where to)\b",
-    r"\b(recommend|suggestion|best|top \d|popular|trending|fun to do|things to do)\b",
-    r"\b(2024|2025|2026|2027)\b",
+    r"\b(news|update|score|price|weather|stock|release|announced|happened|launched|report|study)\b",
+    r"\b20(2[3-9]|[3-9]\d)\b",
+    # WH + copula/aux (factual lookup)
+    r"\b(who|what|where|when|why|how)\b.{0,40}\b(is|was|are|were|did|does|has|have|had|will|would)\b",
+    # Quantitative / statistical
+    r"\b(statistics?|stat|data|average|mean|median|percent|percentage|rate|ratio|per\s+(capita|year|day|month|hour|week))\b",
+    r"\bhow\s+(much|many|often|long|fast|tall|heavy|big|small|old)\b",
+    # Comparisons
+    r"\b(compare|comparison|versus|vs\.?|difference between|better than|worse than|pros and cons)\b",
+    # Recommendations
+    r"\b(recommend|suggestion|best|top\s*\d*|popular|trending|favorite|which .{0,20}should|what .{0,20}should (i|we))\b",
+    # Factual framings
+    r"\b(facts? about|history of|origin of|definition of|cause of|reason for|effect of|impact of|examples of)\b",
+    # "how to" (frequently wants current info/tutorials)
+    r"^\s*how\s+(to|do i|can i)\b",
 ]
-_CURRENT_INFO_RE = re.compile("|".join(_CURRENT_INFO_PATTERNS), re.IGNORECASE)
+_FACTUAL_RE = re.compile("|".join(_FACTUAL_PATTERNS), re.IGNORECASE)
 
-# Patterns for messages that should NOT trigger search — these are handled
-# better by the model alone without web context
-_SKIP_PATTERNS = [
-    # Greetings and short social messages
-    r"^(hi|hello|hey|howdy|yo|sup|thanks|thank you|bye|goodbye|ok|yes|no|sure|lol|haha|gm|gn)\s*[!.?]*$",
-    # Creative writing requests
-    r"^(write|create|generate|make|compose|draft|tell me a|sing|imagine)\b",
-    r"\b(poem|story|joke|song|essay|letter|script|code|function|program|class|snippet)\b",
-    # Math and calculations
-    r"\b\d+\s*[+\-*/^%]\s*\d+",
-    r"\b(calculate|compute|solve|simplify|evaluate|convert \d)\b",
-    r"^what is \d+",
-    # Programming and coding
-    r"\b(python|javascript|java|rust|golang|typescript|html|css|sql|bash|regex)\b.*\b(function|code|script|sort|loop|array|list|class|implement)\b",
-    r"\b(function|code|script|sort|loop|array|list|class|implement)\b.*\b(python|javascript|java|rust|golang|typescript|html|css|sql|bash|regex)\b",
-    r"^(explain|describe|define|what does|how does)\b.*\b(code|function|algorithm|syntax|error|bug|exception)\b",
-    # Hypothetical and opinion questions
-    r"^(what if|would you|could you|can you|do you|are you)\b",
-    # Translation
-    r"\b(translate|translation)\b",
+# Strict skip: greetings, pure math, trivial acknowledgements.
+_STRICT_SKIP_PATTERNS = [
+    # Bare greeting / acknowledgement
+    r"^(hi|hello|hey|howdy|yo|sup|thanks|thank you|bye|goodbye|ok|okay|yes|no|yeah|nope|sure|lol|haha|gm|gn|good morning|good night|good evening|good afternoon|nm|nothing)\s*[!.?,]*$",
+    # Greeting followed by a short trailing token: "hi there", "hello friend", "hey bot"
+    r"^(hi|hello|hey|howdy|yo|hola|sup|gm|gn|good (morning|night|evening|afternoon))\s+(there|friend|bot|mate|pal|folks|team|y'all|everyone|pollen|pollenbot|chat)\s*[!.?,]*$",
+    # Common greeting questions that don't need search
+    r"^(how are you|how's it going|hows it going|what'?s up|whats up|howdy partner|how goes it)\s*[!.?,]*$",
+    # Pure arithmetic expression
+    r"^[\s\d+\-*/^%().=,]+$",
+    # "what is 5 + 3" / "calculate 2 * 7"
+    r"^\s*(what is|whats|what's)\s+\d+\s*[+\-*/^%]",
+    r"^\s*(calculate|compute|simplify|evaluate)\s+[\d.()]",
 ]
-_SKIP_RE = re.compile("|".join(_SKIP_PATTERNS), re.IGNORECASE)
+_STRICT_SKIP_RE = re.compile("|".join(_STRICT_SKIP_PATTERNS), re.IGNORECASE)
+
+# Basic coding-syntax questions: narrow — only skip if this matches AND no factual signal.
+_CODE_SYNTAX_PATTERNS = [
+    r"^(what does|what is)\s+\w+\s+(keyword|operator|method|syntax|do in|mean in)\b",
+    r"^how do i\s+(declare|print|return|import|define|install|pip install|npm install|require|type)\b",
+    r"\b(syntax error|syntaxerror|null pointer|segfault|segmentation fault|stack trace|stacktrace|traceback)\b",
+    r"^(explain|describe|define|what does|how does)\b.{0,40}\b(this code|this function|this snippet|this regex|this loop)\b",
+]
+_CODE_SYNTAX_RE = re.compile("|".join(_CODE_SYNTAX_PATTERNS), re.IGNORECASE)
+
+# Opinion / creative / hypothetical: still search (for context) but answer leans on model.
+_OPINION_PATTERNS = [
+    r"^(do you|would you|could you|can you|are you|will you)\b",
+    r"\b(your opinion|in your opinion|what do you think|do you think|do you feel|what would you|would you rather)\b",
+    r"\b(hypothetical|imagine|what if|suppose)\b",
+    r"^\s*(write|create|generate|make|compose|draft|tell me a|sing)\b",
+    r"\b(poem|story|joke|song|essay|letter|script|haiku|limerick|rap)\b",
+    r"\b(advice (on|for|about)|give me advice|help me decide)\b",
+]
+_OPINION_RE = re.compile("|".join(_OPINION_PATTERNS), re.IGNORECASE)
+
+# Greeting-only subset of _STRICT_SKIP_PATTERNS. Used to short-circuit
+# hi/hello/hey/good morning etc. with a canned reply instead of sending
+# the raw text through Mixtral (which used to free-form continue into
+# unrelated content like product names or tutorials).
+_GREETING_PATTERNS = [
+    r"^(hi|hello|hey|howdy|yo|sup|hola|gm|gn|good morning|good night|good evening|good afternoon)\s*[!.?,]*$",
+    r"^(hi|hello|hey|howdy|yo|hola|sup|gm|gn|good (morning|night|evening|afternoon))\s+(there|friend|bot|mate|pal|folks|team|y\'all|everyone|pollen|pollenbot|chat)\s*[!.?,]*$",
+    r"^(how are you|how\'s it going|hows it going|what\'?s up|whats up|howdy partner|how goes it)\s*[!.?,]*$",
+]
+_GREETING_RE = re.compile("|".join(_GREETING_PATTERNS), re.IGNORECASE)
+
+GREETING_RESPONSES = (
+    "Hey! How can I help?",
+    "Hello! What can I help you with?",
+    "Hi there! What would you like to know?",
+    "Hey there! Got a question?",
+    "Hello! What brings you here today?",
+    "Hi! What can I look up for you?",
+)
+
+
+def is_greeting(message):
+    """True if the message is a bare greeting that should get a canned reply
+    instead of being sent to Mixtral. Stricter than classify_query=='skip'
+    (which also covers bare math like '2+2')."""
+    if not message:
+        return False
+    return bool(_GREETING_RE.search(message.strip()))
+
+
+def random_greeting_response():
+    import random as _random
+    return _random.choice(GREETING_RESPONSES)
+
+
+
+# --- Back-compat aliases (do not remove — other code may import these) ---
+_CURRENT_INFO_PATTERNS = _FACTUAL_PATTERNS
+_CURRENT_INFO_RE = _FACTUAL_RE
+_SKIP_PATTERNS = _STRICT_SKIP_PATTERNS
+_SKIP_RE = _STRICT_SKIP_RE
 
 
 
@@ -55,6 +122,68 @@ def extract_user_message(prompt):
     return parts[-1].strip()
 
 
+# Prompt-size budget. The Petals server advertises a 2048-token KV cache
+# ceiling, so the augmented prompt must stay well under that to leave room
+# for generation. We target 1800 tokens for the full prompt sent to Mixtral.
+_PROMPT_TOKEN_BUDGET = 1800
+# Conservative chars-per-token estimate for Mixtral's sentencepiece tokenizer
+# on English text (real tokenizer averages ~3.5 chars/token; we use 3 for safety).
+_CHARS_PER_TOKEN = 3
+
+
+def _estimate_tokens(text):
+    return (len(text) + _CHARS_PER_TOKEN - 1) // _CHARS_PER_TOKEN if text else 0
+
+
+def _fit_prompt_to_budget(full_prompt, context_block):
+    """Truncate context_block inside full_prompt so total estimated tokens <= budget.
+
+    Returns (fitted_prompt, fitted_context_block). If the context block is
+    not present in full_prompt (or fits already), returns inputs unchanged.
+    """
+    if not context_block:
+        return full_prompt, context_block
+    if _estimate_tokens(full_prompt) <= _PROMPT_TOKEN_BUDGET:
+        return full_prompt, context_block
+
+    # overhead = prompt chars that are *not* the context block
+    overhead = max(0, len(full_prompt) - len(context_block))
+    budget_chars = _PROMPT_TOKEN_BUDGET * _CHARS_PER_TOKEN
+    allowed_ctx = budget_chars - overhead
+    if allowed_ctx < 400:
+        # Overhead alone already too large; nothing more we can safely trim.
+        return full_prompt, context_block
+
+    trimmed = context_block[:allowed_ctx]
+    # Cut at the last newline so we don't leave a half-line dangling
+    nl = trimmed.rfind("\n")
+    if nl > 200:
+        trimmed = trimmed[:nl]
+    trimmed = trimmed.rstrip() + "\n[... context truncated to fit token budget ...]\n[End of Search Results]\n"
+    new_prompt = full_prompt.replace(context_block, trimmed, 1)
+    log.info("RAG prompt trimmed: %d->%d chars (~%d->%d tokens)",
+             len(full_prompt), len(new_prompt),
+             _estimate_tokens(full_prompt), _estimate_tokens(new_prompt))
+    return new_prompt, trimmed
+
+
+_FACTUAL_INSTRUCTION = (
+    "You MUST base your answer on the search results provided below. Do not rely on your own knowledge for factual claims as it may be outdated or wrong. "
+    "If search results do not contain enough information clearly state you could not find reliable information rather than guessing. "
+    "Synthesize across sources, include exact numbers, dates, names, and data points, and draw connections between sources. "
+    "Write as an expert explaining to a peer, not as a search engine listing results. "
+    "Refer to sources by number like [1]. Do not include URLs. "
+    "Give direct specific answers with concrete data. Never hedge with phrases like 'however this can vary', 'it depends on the person', 'some people may', 'its important to note'. If you have a specific answer give it. If you dont know say so. Do not pad responses with obvious qualifiers."
+)
+
+_OPINION_INSTRUCTION = (
+    "You are a knowledgeable assistant. The user is asking an opinion, creative, or advice-style question \u2014 answer primarily from your own reasoning and experience. "
+    "Use the search results below as supplementary context only, not as primary evidence. "
+    "Draw on them when they offer a specific fact worth citing, otherwise trust your own knowledge. Write naturally and directly. "
+    "Refer to sources by number like [1] only when you cite a specific fact from them. Do not include URLs. "
+    "Give direct specific answers. Never hedge with phrases like 'however this can vary', 'it depends on the person', 'some people may', 'its important to note'. If you have an answer give it. If you dont know say so. Do not pad responses with obvious qualifiers."
+)
+
 def augment_prompt_in_place(full_prompt, results):
     """Inject RAG context into an existing Mixtral prompt without re-wrapping.
 
@@ -64,12 +193,9 @@ def augment_prompt_in_place(full_prompt, results):
     if not context_block:
         return full_prompt
 
-    instruction = (
-        "You have been given current web search results. Answer the question using specific details from the results. "
-        "Include names, dates, numbers, and key facts. Do not give vague summaries. "
-        "Do not say you cannot access the articles or tell the user to visit sources. "
-        "Present information confidently as facts. Refer to sources by number like [1]. Do not include URLs.\n\n"
-    )
+    user_msg = extract_user_message(full_prompt)
+    mode = classify_query(user_msg)
+    instruction = (_OPINION_INSTRUCTION if mode == "opinion" else _FACTUAL_INSTRUCTION) + "\n\n"
 
     # Find the last [INST] and inject context after it
     last_inst = full_prompt.rfind("[INST]")
@@ -81,33 +207,48 @@ def augment_prompt_in_place(full_prompt, results):
     while insert_pos < len(full_prompt) and full_prompt[insert_pos] in " \t":
         insert_pos += 1
 
-    return (
+    built = (
         full_prompt[:insert_pos]
         + instruction
         + context_block + "\n\n"
         + "User question: "
         + full_prompt[insert_pos:]
     )
+    fitted, _ = _fit_prompt_to_budget(built, context_block)
+    return fitted
+
+
+def classify_query(message):
+    """Classify a user message as 'skip', 'factual', or 'opinion'.
+
+    - 'skip':    pure greeting, bare arithmetic, or a narrow coding-syntax question.
+    - 'factual': explicit factual/statistical/current-event/comparison/recommendation signal.
+    - 'opinion': hypothetical/creative/advice-style. Still searches, but the prompt
+                 instructs the model to rely more on its own knowledge.
+
+    When unsure the classifier defaults to 'factual' so search runs by default.
+    """
+    t = (message or "").strip()
+    if not t or len(t) < 4:
+        return "skip"
+    # Only skip for pure greetings / acknowledgements and bare arithmetic.
+    if _STRICT_SKIP_RE.search(t):
+        return "skip"
+    # Opinion / creative framing -> search with opinion-mode instructions.
+    if _OPINION_RE.search(t) and not _FACTUAL_RE.search(t):
+        return "opinion"
+    # Everything else (factual, informational, coding, recommendations, how-to,
+    # ambiguous queries) -> search with factual-mode instructions.
+    return "factual"
 
 
 def needs_search(message):
-    """Decide whether a message would benefit from web search context.
-
-    Returns True for current events, news, factual lookups, recommendations.
-    Returns False for greetings, math, coding, creative writing.
-    """
+    """True when the message should trigger a web search. Aggressive by default."""
     if not rag_search.is_enabled():
         return False
-    text = message.strip()
-    if len(text) < 10:
-        return False
-    # Skip patterns take priority — if it looks like code/math/creative, don't search
-    if _SKIP_RE.search(text):
-        log.debug("needs_search(%r) -> False (skip pattern matched)", text[:60])
-        return False
-    result = bool(_CURRENT_INFO_RE.search(text))
-    log.debug("needs_search(%r) -> %s", text[:60], result)
-    return result
+    c = classify_query(message)
+    log.debug("needs_search(%r) classify=%s -> %s", (message or "")[:60], c, c != "skip")
+    return c != "skip"
 
 
 def format_context(results):
@@ -146,18 +287,15 @@ def build_augmented_prompt(user_message, system_prefix="", search_results=None):
         context_block = format_context(results)
 
     if context_block:
-        instruction = (
-            "You have been given current web search results. Answer the question using specific details from the results. "
-            "Include names, dates, numbers, and key facts. Do not give vague summaries. "
-            "Do not say you cannot access the articles or tell the user to visit sources. "
-            "Present information confidently as facts. Refer to sources by number like [1]. Do not include URLs."
-        )
+        mode = classify_query(user_message)
+        instruction = _OPINION_INSTRUCTION if mode == "opinion" else _FACTUAL_INSTRUCTION
         prompt = (
             f"{system_prefix}"
             f"[INST] {instruction}\n\n"
             f"{context_block}\n"
             f"User question: {user_message} [/INST]"
         )
+        prompt, context_block = _fit_prompt_to_budget(prompt, context_block)
     else:
         prompt = f"{system_prefix}[INST] {user_message} [/INST]"
 

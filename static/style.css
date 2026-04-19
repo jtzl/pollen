@@ -251,24 +251,42 @@
   margin-right: 2px;
 }
 .rag-source-link {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 1px;
+  display: inline-grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 6px;
+  row-gap: 1px;
+  align-items: center;
   padding: 5px 10px;
   border-radius: 8px;
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.06);
   text-decoration: none;
   transition: all 0.15s ease;
-  max-width: 200px;
+  max-width: 280px;
 }
 .rag-source-link:hover {
   background: rgba(255,255,255,0.06);
   border-color: rgba(139, 92, 246, 0.25);
 }
-.rag-source-title {
-  font-size: 11px;
+.rag-source-index {
+  grid-row: 1 / span 2;
+  font-size: 10px;
+  font-weight: 600;
   color: #a78bfa;
+  background: rgba(139, 92, 246, 0.12);
+  border-radius: 4px;
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.rag-source-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #e5e7eb;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -299,4 +317,97 @@
   color: #c4b5fd;
   background: rgba(167, 139, 250, 0.15);
   text-decoration: none;
+}
+
+/* === Network Node Cards === */
+.node-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(30, 30, 50, 0.8);
+  border: 1px solid rgba(255,255,255,0.05);
+  transition: all 0.2s ease;
+}
+.node-card:hover {
+  background: rgba(37, 37, 64, 0.9);
+  border-color: rgba(255,255,255,0.08);
+}
+.node-card.offline {
+  opacity: 0.5;
+  border-color: rgba(239, 68, 68, 0.2);
+  background: rgba(30, 30, 50, 0.4);
+}
+
+/* Node status dots */
+.node-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.node-status-dot.up {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+}
+.node-status-dot.down {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+  animation: statusPulse 1.5s ease-in-out infinite;
+}
+
+/* Offline badge */
+.node-offline-badge {
+  font-size: 10px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Node info row */
+.node-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 6px;
+}
+.node-info span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* VRAM progress bar */
+.vram-bar-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(45, 45, 74, 0.8);
+  overflow: hidden;
+}
+.vram-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease, background 0.3s ease;
+}
+.vram-bar-fill.low { background: linear-gradient(90deg, #22c55e, #4ade80); }
+.vram-bar-fill.medium { background: linear-gradient(90deg, #eab308, #facc15); }
+.vram-bar-fill.high { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+.vram-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.vram-label span {
+  font-size: 10px;
+}
+.vram-section {
+  margin-top: 8px;
 }

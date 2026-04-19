@@ -1,0 +1,112 @@
+Pollen fix-verification test
+Started: 2026-04-18T02:35:27+00:00
+
+=====================================================
+QUERY: hello
+ELAPSED: 0s
+
+--- RESPONSE ---
+Hello! What can I help you with?
+
+=====================================================
+QUERY: hey there
+ELAPSED: 0s
+
+--- RESPONSE ---
+Hello! What brings you here today?
+
+=====================================================
+QUERY: recommend a good programming language for beginners
+ELAPSED: 8s
+
+--- RESPONSE ---
+ERROR: Traceback (most recent call last):
+  File "/data/chat-ui/http_api.py", line 62, in http_api_generate
+    outputs = model.generate(
+              ^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/petals/client/remote_generation.py", line 137, in generate
+    result = super().generate(inputs, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 1989, in generate
+    result = self._sample(
+             ^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 2932, in _sample
+    outputs = self(**model_inputs, return_dict=True)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/models/mixtral/modeling_mixtral.py", line 1225, in forward
+    outputs = self.model(
+        
+
+=====================================================
+QUERY: top tourist destinations in japan
+ELAPSED: 9s
+
+--- RESPONSE ---
+ERROR: Traceback (most recent call last):
+  File "/data/chat-ui/http_api.py", line 62, in http_api_generate
+    outputs = model.generate(
+              ^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/petals/client/remote_generation.py", line 137, in generate
+    result = super().generate(inputs, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 1989, in generate
+    result = self._sample(
+             ^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 2932, in _sample
+    outputs = self(**model_inputs, return_dict=True)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/models/mixtral/modeling_mixtral.py", line 1225, in forward
+    outputs = self.model(
+        
+
+=====================================================
+QUERY: best exercises for lower back pain
+ELAPSED: 10s
+
+--- RESPONSE ---
+ERROR: Traceback (most recent call last):
+  File "/data/chat-ui/http_api.py", line 62, in http_api_generate
+    outputs = model.generate(
+              ^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/petals/client/remote_generation.py", line 137, in generate
+    result = super().generate(inputs, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 1989, in generate
+    result = self._sample(
+             ^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 2932, in _sample
+    outputs = self(**model_inputs, return_dict=True)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/models/mixtral/modeling_mixtral.py", line 1225, in forward
+    outputs = self.model(
+        
+
+=====================================================
+Finished: 2026-04-18T02:35:54+00:00

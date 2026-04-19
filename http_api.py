@@ -6,7 +6,7 @@ from flask import jsonify, request
 import config
 import rag_pipeline
 from app import app, models
-from utils import safe_decode
+from utils import safe_decode, strip_filler_phrases
 
 logger = hivemind.get_logger(__file__)
 
@@ -30,13 +30,28 @@ def http_api_generate():
         if not backend_config.public_api:
             raise ValueError(f"We do not provide public API for {model_name} due to license restrictions")
 
-        # RAG augmentation: if inputs look like they need current info, search first
+        # Short-circuit greetings with a canned reply before touching Mixtral.
+        # Bare "hi" / "hey there" / "good morning" used to free-form continue
+        # into unrelated content (product names, code snippets) because the HTTP
+        # path expects pre-formatted [INST] prompts from bots.
+        if inputs is not None and rag_pipeline.is_greeting(inputs):
+            greeting = rag_pipeline.random_greeting_response()
+            logger.info(f"generate() greeting short-circuit -> {greeting!r}")
+            return jsonify(ok=True, outputs=greeting)
+
+        # RAG augmentation + Mixtral [INST] wrapping.
+        # build_augmented_prompt always returns a properly wrapped [INST]...[/INST] prompt
+        # (with RAG context if needs_search is True, or just `[INST] {user} [/INST]` otherwise).
+        # When use_rag == "off" we bypass the search pipeline but still wrap manually so
+        # Mixtral receives a well-formed instruction prompt instead of raw text.
         rag_results = []
-        if inputs is not None and use_rag != "off":
-            if use_rag == "on" or rag_pipeline.needs_search(inputs):
+        if inputs is not None:
+            if use_rag != "off":
                 inputs, rag_results = rag_pipeline.build_augmented_prompt(inputs)
                 if rag_results:
                     logger.info(f"generate(), RAG augmented with {len(rag_results)} results")
+            else:
+                inputs = f"[INST] {inputs} [/INST]"
 
         if inputs is not None:
             inputs = tokenizer(inputs, return_tensors="pt")["input_ids"].to(config.DEVICE)
@@ -55,6 +70,7 @@ def http_api_generate():
             max_new_tokens=max_new_tokens,
         )
         outputs = safe_decode(tokenizer, outputs[0, n_input_tokens:])
+        outputs = strip_filler_phrases(outputs)
         logger.info(f"generate(), outputs={repr(outputs)}")
 
         resp = {"ok": True, "outputs": outputs}

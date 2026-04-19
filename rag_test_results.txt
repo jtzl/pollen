@@ -1,0 +1,200 @@
+Pollen chat RAG test run
+Started: 2026-04-18T00:23:43+00:00
+Host: ip-172-30-6-89
+
+=====================================================
+QUERY: hello
+SENT:  2026-04-18T00:23:43+00:00
+ELAPSED: 81s
+
+--- OUTPUT ---
+"
+ # => "hello"
+```
+
+If you have an array of strings, you can use `map` to get an array of the lengths:
+
+```
+["hello", "world", "ruby"].map(&:length)
+# => [5, 5, 4]
+```
+
+Comment: The OP asked for the length of the string, not the length of the array.
+
+Comment: I'm not sure what you mean, @JörgWMittag. I don't see the phrase "length of the array" in the question.
+
+Comment: The question is about `Array#length` (or `Enumerable#length`), which is not the same as `String#length`.
+
+Comment: I see, @JörgWMittag. I've revised my answer.
+
+## Answer (0)
+
+If you have an array of strings, you can use the `map` method to get an array of the lengths of the strings.
+
+```
+array_of_strings = ["hello", "world", "ruby"]
+array_of_lengths = array_of_strings.map(&:length)
+# => [5, 5, 4]
+```
+
+If you want to get the length of each string in an array of arrays, you can use the `flat_map
+
+=====================================================
+QUERY: what is google gemini
+SENT:  2026-04-18T00:25:04+00:00
+ELAPSED: 16s
+
+--- OUTPUT ---
+ERROR: Traceback (most recent call last):
+  File "/data/chat-ui/http_api.py", line 47, in http_api_generate
+    outputs = model.generate(
+              ^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/petals/client/remote_generation.py", line 137, in generate
+    result = super().generate(inputs, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 1989, in generate
+    result = self._sample(
+             ^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/gene
+
+=====================================================
+QUERY: who is the CEO of anthropic
+SENT:  2026-04-18T00:25:20+00:00
+ELAPSED: 10s
+
+--- OUTPUT ---
+ERROR: Traceback (most recent call last):
+  File "/data/chat-ui/http_api.py", line 47, in http_api_generate
+    outputs = model.generate(
+              ^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/petals/client/remote_generation.py", line 137, in generate
+    result = super().generate(inputs, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 1989, in generate
+    result = self._sample(
+             ^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/gene
+
+=====================================================
+QUERY: what is claude ai
+SENT:  2026-04-18T00:25:30+00:00
+ELAPSED: 14s
+
+--- OUTPUT ---
+ERROR: Traceback (most recent call last):
+  File "/data/chat-ui/http_api.py", line 47, in http_api_generate
+    outputs = model.generate(
+              ^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/petals/client/remote_generation.py", line 137, in generate
+    result = super().generate(inputs, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 1989, in generate
+    result = self._sample(
+             ^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/gene
+
+=====================================================
+QUERY: how many planets are in the solar system
+SENT:  2026-04-18T00:25:44+00:00
+ELAPSED: 9s
+
+--- OUTPUT ---
+ERROR: Traceback (most recent call last):
+  File "/data/chat-ui/http_api.py", line 47, in http_api_generate
+    outputs = model.generate(
+              ^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/petals/client/remote_generation.py", line 137, in generate
+    result = super().generate(inputs, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 1989, in generate
+    result = self._sample(
+             ^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/gene
+
+=====================================================
+QUERY: latest news about spacex 2026
+SENT:  2026-04-18T00:25:53+00:00
+ELAPSED: 10s
+
+--- OUTPUT ---
+ERROR: Traceback (most recent call last):
+  File "/data/chat-ui/http_api.py", line 47, in http_api_generate
+    outputs = model.generate(
+              ^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/petals/client/remote_generation.py", line 137, in generate
+    result = super().generate(inputs, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 1989, in generate
+    result = self._sample(
+             ^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/gene
+
+=====================================================
+QUERY: what programming language should i learn
+SENT:  2026-04-18T00:26:03+00:00
+ELAPSED: 10s
+
+--- OUTPUT ---
+ERROR: Traceback (most recent call last):
+  File "/data/chat-ui/http_api.py", line 47, in http_api_generate
+    outputs = model.generate(
+              ^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/petals/client/remote_generation.py", line 137, in generate
+    result = super().generate(inputs, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/generation/utils.py", line 1989, in generate
+    result = self._sample(
+             ^^^^^^^^^^^^^
+  File "/data/petals-env/lib/python3.12/site-packages/transformers/gene
+
+=====================================================
+Finished: 2026-04-18T00:26:13+00:00
+
+=====================================================
+DIAGNOSIS (not a code change — informational only)
+=====================================================
+Query 1 "hello" succeeded (81s) because needs_search() correctly classified
+it as "skip", so the raw 1-word prompt fit inside the KV cache. However the
+HTTP /api/v1/generate endpoint sent raw "hello" to Mixtral without [INST]
+wrapping (that path expects pre-formatted prompts from bots), so the model
+did free-form continuation and produced unrelated Ruby/length text.
+
+Queries 2-7 all failed with the same underlying P2P server error:
+    P2PHandlerError: Failed to call handler TransformerConnectionHandler.rpc_inference:
+    Cannot allocate KV cache for N tokens, max = 2048
+
+Observed prompt sizes after RAG augmentation:
+    what is google gemini                      ~2448 tokens
+    who is the CEO of anthropic                ~2448 tokens
+    what is claude ai                          ~2448 tokens
+    how many planets are in the solar system   ~2448 tokens (6 results)
+    latest news about spacex 2026              ~3044 tokens (6 results)
+    what programming language should i learn   ~3952 tokens (7 results)
+
+The KV cache ceiling is 2048 tokens per the EC2 Petals server. The recent
+RAG enrichment changes (page-fetch, RAG_FETCH_CHARS=2000, up to 8 results,
+query reformulation adding variants, deeper instruction text) pushed the
+augmented prompt size past the 2048-token limit for every factual query.
+
+Note: the EC2 petals-server config uses "--attn_cache_tokens 4096" but the
+remote peer only surfaces 2048, so the narrower limit wins.
+
+No code has been modified. Results captured as requested.

@@ -31,17 +31,15 @@ HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhos
 if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ] 2>/dev/null; then
     log "OK: Chat API responded with HTTP $HTTP_CODE"
 else
-    log "FAIL: Chat API unresponsive (HTTP $HTTP_CODE). Restarting services..."
-    sudo systemctl restart petals-server
-    PETALS_SERVER_EXIT=$?
+    log "FAIL: Chat API unresponsive (HTTP $HTTP_CODE). Restarting ONLY petals-chat (petals-server is checked separately)..."
     sudo systemctl restart petals-chat
     PETALS_CHAT_EXIT=$?
-    if [ $PETALS_SERVER_EXIT -eq 0 ] && [ $PETALS_CHAT_EXIT -eq 0 ]; then
-        log "RESTART: petals-server and petals-chat restarted successfully"
-        record_failure "petals-chat" "Chat API returned HTTP $HTTP_CODE" "Restarted petals-server and petals-chat (success)"
+    if [ $PETALS_CHAT_EXIT -eq 0 ]; then
+        log "RESTART: petals-chat restarted successfully"
+        record_failure "petals-chat" "Chat API returned HTTP $HTTP_CODE" "Restarted petals-chat (success)"
     else
-        log "ERROR: Restart failed (petals-server=$PETALS_SERVER_EXIT, petals-chat=$PETALS_CHAT_EXIT)"
-        record_failure "petals-chat" "Chat API returned HTTP $HTTP_CODE" "Restart attempted but failed (petals-server=$PETALS_SERVER_EXIT, petals-chat=$PETALS_CHAT_EXIT)"
+        log "ERROR: Restart failed (petals-chat=$PETALS_CHAT_EXIT)"
+        record_failure "petals-chat" "Chat API returned HTTP $HTTP_CODE" "Restart attempted but failed (petals-chat=$PETALS_CHAT_EXIT)"
     fi
 fi
 
@@ -62,15 +60,65 @@ else
 fi
 
 # --- 3) Check Petals Server ---
-if ! systemctl is-active --quiet petals-server; then
-    log "FAIL: petals-server is not running. Restarting..."
+# Two-stage check:
+#   (a) systemd is-active — restart immediately if the unit itself is down
+#   (b) block-coverage — after a 12-minute startup grace window, ensure the
+#       EC2 (A10G) peer is actually serving its assigned blocks (expected 28).
+#       Without this check the watchdog considered "loading block 3/28" healthy,
+#       leaving blocks 0-2 unserved for 10+ minutes.
+SERVER_MIN_BLOCKS=20        # restart if fewer than this many blocks being served
+SERVER_STARTUP_GRACE=720    # seconds to wait after service start before coverage check
+SERVER_STATE=$(systemctl is-active petals-server 2>/dev/null)
+
+if [ "$SERVER_STATE" != "active" ]; then
+    log "FAIL: petals-server is $SERVER_STATE. Restarting..."
     sudo systemctl restart petals-server
     if [ $? -eq 0 ]; then
         log "RESTART: petals-server restarted successfully"
-        record_failure "petals-server" "Service was not active" "Restarted petals-server (success)"
+        record_failure "petals-server" "Service state was $SERVER_STATE" "Restarted petals-server (success)"
     else
         log "ERROR: Failed to restart petals-server"
-        record_failure "petals-server" "Service was not active" "Restart attempted but failed"
+        record_failure "petals-server" "Service state was $SERVER_STATE" "Restart attempted but failed"
+    fi
+else
+    # Compute how long the unit has been active
+    SERVER_START_TS=$(systemctl show -p ActiveEnterTimestamp --value petals-server 2>/dev/null)
+    SERVER_START_EPOCH=$(date -d "$SERVER_START_TS" +%s 2>/dev/null || echo 0)
+    NOW_EPOCH=$(date +%s)
+    SERVER_UPTIME=$(( NOW_EPOCH - SERVER_START_EPOCH ))
+
+    if [ "$SERVER_UPTIME" -lt "$SERVER_STARTUP_GRACE" ]; then
+        log "OK: petals-server active, within startup grace (uptime=${SERVER_UPTIME}s < ${SERVER_STARTUP_GRACE}s)"
+    else
+        # Read the EC2 (A10G) peer's current block count from the chat API
+        EC2_BLOCKS=$(curl -s --max-time 6 http://localhost:5000/api/status 2>/dev/null | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    for n in d.get('nodes', []):
+        if n.get('name') == 'EC2 (A10G)':
+            print(int(n.get('num_blocks') or 0))
+            break
+    else:
+        print('unknown')
+except Exception:
+    print('unknown')
+" 2>/dev/null)
+        if [ "$EC2_BLOCKS" = "unknown" ] || [ -z "$EC2_BLOCKS" ]; then
+            log "WARN: could not determine EC2 peer block count from /api/status (skipping coverage check)"
+        elif [ "$EC2_BLOCKS" -lt "$SERVER_MIN_BLOCKS" ] 2>/dev/null; then
+            log "FAIL: petals-server active but serving only $EC2_BLOCKS blocks (expected >= $SERVER_MIN_BLOCKS). Restarting..."
+            sudo systemctl restart petals-server
+            if [ $? -eq 0 ]; then
+                log "RESTART: petals-server restarted to recover block coverage"
+                record_failure "petals-server" "Active but serving only $EC2_BLOCKS blocks (expected >= $SERVER_MIN_BLOCKS)" "Restarted petals-server (success)"
+            else
+                log "ERROR: Failed to restart petals-server for coverage"
+                record_failure "petals-server" "Active but serving only $EC2_BLOCKS blocks" "Restart attempted but failed"
+            fi
+        else
+            log "OK: petals-server serving $EC2_BLOCKS blocks (uptime=${SERVER_UPTIME}s)"
+        fi
     fi
 fi
 

@@ -21,7 +21,7 @@
       }
     }
   </script>
-  <link href="./static/style.css?v=4" rel="stylesheet">
+  <link href="./static/style.css?v=6" rel="stylesheet">
   <!-- Marked.js for Markdown rendering -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -250,7 +250,7 @@
   <!-- Network Status Modal -->
   <div id="network-status-modal" class="fixed inset-0 z-50 hidden">
     <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeNetworkStatus()"></div>
-    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-surface-200 rounded-2xl border border-white/10 shadow-2xl p-6">
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl bg-surface-200 rounded-2xl border border-white/10 shadow-2xl p-6">
       <div class="flex items-center justify-between mb-5">
         <div class="flex items-center gap-2">
           <svg class="w-5 h-5 text-accent-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.807-3.808-9.98 0-13.788m13.788 0c3.808 3.807 3.808 9.98 0 13.788M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
@@ -308,10 +308,10 @@
           </div>
         </div>
 
-        <!-- Peer List -->
+        <!-- Network Nodes -->
         <div>
-          <span class="text-xs font-medium text-gray-400 mb-2 block">Connected Peers</span>
-          <div id="ns-peer-list" class="space-y-1.5 max-h-48 overflow-y-auto"></div>
+          <span class="text-xs font-medium text-gray-400 mb-3 block">Network Nodes</span>
+          <div id="ns-nodes-list" class="space-y-3 max-h-80 overflow-y-auto"></div>
         </div>
       </div>
 
@@ -388,6 +388,6 @@
     const modelConfigs = {{ model_config_json|safe }};
     const defaultModel = {{ default_model.backend.key|tojson|safe }};
   </script>
-  <script src="./static/chat.js?v=4"></script>
+  <script src="./static/chat.js?v=8"></script>
 </body>
 </html>

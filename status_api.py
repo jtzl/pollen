@@ -1,3 +1,4 @@
+import subprocess
 import time
 import hivemind
 from flask import jsonify
@@ -9,6 +10,39 @@ logger = hivemind.get_logger(__file__)
 
 _cache = {"data": None, "time": 0}
 CACHE_TTL = 10
+
+# Map truncated peer IDs to friendly node info
+NODE_MAP = {
+    "WUG9d9G7tHHQ": {
+        "name": "EC2 (A10G)",
+        "vram_cmd": ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+    },
+    "4AMqExmwB3JL": {
+        "name": "Physical Node (RTX 3090)",
+        "vram_cmd": ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
+                      "irfan@98.61.139.87",
+                      "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits"],
+    },
+    "gSxhpLDG3N66": {
+        "name": "Zlamabama (RTX 4090)",
+        "vram_cmd": ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
+                      "-p", "31332", "irfan@localhost",
+                      "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits"],
+    },
+}
+
+
+def _get_vram(cmd):
+    """Run a command to get VRAM usage. Returns (used_mb, total_mb) or (None, None)."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            parts = result.stdout.strip().split(",")
+            if len(parts) == 2:
+                return int(parts[0].strip()), int(parts[1].strip())
+    except Exception:
+        pass
+    return None, None
 
 
 def _get_sequence_manager(model):
@@ -55,14 +89,18 @@ def api_status():
 
         # Build peer list
         peers = []
+        peer_map = {}
         for peer_id, span in spans.items():
-            peers.append({
-                "peer_id": str(peer_id)[-12:],
+            pid = str(peer_id)[-12:]
+            peer_info = {
+                "peer_id": pid,
                 "start": span.start,
                 "end": span.end,
                 "length": span.length,
                 "throughput": round(span.server_info.throughput, 1) if span.server_info else 0,
-            })
+            }
+            peers.append(peer_info)
+            peer_map[pid] = peer_info
 
         # Block coverage
         block_status = []
@@ -77,11 +115,50 @@ def api_status():
 
         coverage = sum(block_status)
 
+        # Build nodes array with VRAM info
+        nodes = []
+        seen_peers = set()
+        for pid, node_info in NODE_MAP.items():
+            peer = peer_map.get(pid)
+            is_up = peer is not None
+            seen_peers.add(pid)
+
+            vram_used, vram_total = _get_vram(node_info["vram_cmd"])
+
+            node = {
+                "name": node_info["name"],
+                "peer_id": pid,
+                "status": "up" if is_up else "down",
+                "blocks_start": peer["start"] if is_up else None,
+                "blocks_end": peer["end"] if is_up else None,
+                "num_blocks": peer["length"] if is_up else 0,
+                "throughput": peer["throughput"] if is_up else 0,
+                "vram_used_mb": vram_used,
+                "vram_total_mb": vram_total,
+            }
+            nodes.append(node)
+
+        # Include any unknown peers not in NODE_MAP
+        for peer in peers:
+            if peer["peer_id"] not in seen_peers:
+                nodes.append({
+                    "name": "Unknown (%s)" % peer["peer_id"],
+                    "peer_id": peer["peer_id"],
+                    "status": "up",
+                    "blocks_start": peer["start"],
+                    "blocks_end": peer["end"],
+                    "num_blocks": peer["length"],
+                    "throughput": peer["throughput"],
+                    "vram_used_mb": None,
+                    "vram_total_mb": None,
+                })
+
         result = {
             "ok": True,
             "model_name": model_name,
             "num_peers": len(spans),
             "peers": peers,
+            "nodes": nodes,
             "block_status": block_status,
             "block_coverage": coverage,
             "total_blocks": num_blocks,
