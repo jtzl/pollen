@@ -93,17 +93,12 @@ _FILLER_PATTERNS = [
         r"does\s+not\s+incorporate\s+any\s+additional\s+knowledge"
         r"[^.!?\n]*(?=[.!?]|\n|$)"
     ),
-    # "Based solely on the provided search results, ..." (and the broader
-    # family without "solely": "Based on the search results", "According to
-    # the provided search results", "Based on the search results provided",
-    # etc.) -> drop the prefix and any trailing comma. Re-capitalization
-    # below restores the next word's leading letter when this fires at
-    # sentence start.
+    # "Based solely on the provided search results, ..." -> drop the prefix
+    # and its trailing comma. Re-capitalization below restores the next
+    # word's leading letter when this fires at sentence start.
     _re.compile(
         r"(?i)(?:^|(?<=[.!?])\s+|\n)"
-        r"(?:Based\s+(?:solely\s+)?on\s+the|According\s+to\s+the)\s+"
-        r"(?:provided\s+)?search\s+results?(?:\s+provided)?"
-        r"\s*,?\s*"
+        r"[Bb]ased\s+solely\s+on\s+the\s+provided\s+search\s+results?\s*,?\s*"
     ),
 ]
 
@@ -420,40 +415,6 @@ def _cap_citation_numbers(text, max_sources):
 
 
 # ============================================================
-# String-based fallback for "Based on the search results"-style filler
-# prefixes. The regex pattern in _FILLER_PATTERNS works correctly in
-# unit tests but does not match reliably in the live API path; this
-# fallback runs after all regex stripping and uses a plain-string
-# comparison against a small list of known prefix forms so the
-# observable user-facing text stays clean even when the regex misses.
-# ============================================================
-_FALLBACK_PREFIXES = (
-    "based on the search results provided,",
-    "based on the search results,",
-    "based on the provided search results,",
-    "according to the search results provided,",
-    "according to the search results,",
-)
-
-
-def _strip_fallback_prefix(text):
-    """Drop any of `_FALLBACK_PREFIXES` from the very start of `text`
-    (case-insensitive) and capitalize the first letter of what remains.
-    No-op when the text doesn't start with one of the known prefixes."""
-    if not text:
-        return text
-    text = text.lstrip()
-    lower = text.lower()
-    for prefix in _FALLBACK_PREFIXES:
-        if lower.startswith(prefix):
-            rest = text[len(prefix):].lstrip()
-            if rest:
-                rest = rest[0].upper() + rest[1:]
-            return rest
-    return text
-
-
-# ============================================================
 # Post-strip repair: handle the rare cases where a filler-phrase
 # strip still leaves a partial word at the start (defensive layer
 # behind the \b boundaries on the patterns themselves) or an
@@ -528,7 +489,6 @@ def strip_filler_phrases(text, max_citations=None, is_final=True):
     text = _strip_opening_meta_sentence(text)
     for pat in _FILLER_PATTERNS:
         text = pat.sub("", text)
-    text = _strip_fallback_prefix(text)
     text = _strip_urls(text)
     text = _deduplicate_response(text)
     text = _cap_citation_numbers(text, max_citations)
@@ -547,9 +507,4 @@ def strip_filler_phrases(text, max_citations=None, is_final=True):
     # a lowercase leading letter ("caffeine ..."), capitalize it.
     text = _re.sub(r"([.!?])([A-Z])", r"\1 \2", text)
     text = _re.sub(r"^(\s*)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text, count=1)
-    # Re-capitalize the first letter of any paragraph (\n\n + lowercase).
-    # Mixtral occasionally starts paragraphs with a lowercase word ("there
-    # are…", "while tourism…"); this step normalizes them. Runs last so any
-    # earlier strip that introduces a new paragraph break is also covered.
-    text = _re.sub(r"(\n\n)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text)
     return text
