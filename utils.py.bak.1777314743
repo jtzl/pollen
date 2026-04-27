@@ -453,25 +453,6 @@ def _strip_fallback_prefix(text):
     return text
 
 
-def could_match_fallback_prefix(text):
-    """Return True if `text` could still grow into a `_FALLBACK_PREFIXES`
-    match in a future step (i.e. the lowercase lstripped form is a non-empty
-    prefix of one of the known fallback prefix strings). Used by the
-    streaming websocket path to hold off on emitting a delta while the
-    cumulative output is still potentially a head-fragment of a filler
-    phrase that a later strip pass will remove. Once the text diverges from
-    every known fallback prefix, this returns False and streaming resumes."""
-    if not text:
-        return True  # empty cumulative output could still grow into anything
-    lower = text.lstrip().lower()
-    if not lower:
-        return True
-    for prefix in _FALLBACK_PREFIXES:
-        if prefix.startswith(lower):
-            return True
-    return False
-
-
 # ============================================================
 # Post-strip repair: handle the rare cases where a filler-phrase
 # strip still leaves a partial word at the start (defensive layer

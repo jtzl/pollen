@@ -11,7 +11,7 @@ import speed_tracker
 import rag_pipeline
 import rag_search
 from app import models, sock
-from utils import safe_decode, strip_filler_phrases, could_match_fallback_prefix
+from utils import safe_decode, strip_filler_phrases
 
 logger = hivemind.get_logger(__file__)
 
@@ -141,19 +141,8 @@ def ws_api_generate(ws):
                         # non-monotonically shrink the cumulative filtered text
                         # and break the streaming delta computation below.
                         filtered_all = strip_filler_phrases(all_outputs, max_citations=len(rag_sources), is_final=stop)
-                        # Hold streaming delta while filtered_all could still grow
-                        # into a known fallback-prefix match (e.g. "Based on the
-                        # search res" -> "Based on the search results provided,").
-                        # Without this, the prefix would land in an early delta
-                        # and a later strip-pass would shrink filtered_all but
-                        # the client would never see the retraction. Once the
-                        # text diverges from every fallback prefix or the final
-                        # tick arrives, emit normally.
-                        if not stop and could_match_fallback_prefix(filtered_all):
-                            filtered_delta = ""
-                        else:
-                            filtered_delta = filtered_all[sent_filtered_len:] if len(filtered_all) > sent_filtered_len else ""
-                            sent_filtered_len = max(sent_filtered_len, len(filtered_all))
+                        filtered_delta = filtered_all[sent_filtered_len:] if len(filtered_all) > sent_filtered_len else ""
+                        sent_filtered_len = max(sent_filtered_len, len(filtered_all))
                         logger.info(f"ws.generate.step(), all_outputs={repr(all_outputs)}, stop={stop}, generated={total_generated}/{max_total_tokens}")
                         step_msg = {
                             "ok": True, "outputs": filtered_delta, "stop": stop,
