@@ -136,11 +136,7 @@ def ws_api_generate(ws):
                         all_outputs = combined
                         token_count = len(delta_q + delta)
                         delta_q = []
-                        # is_final=stop: only run the trailing-sentence/mid-word
-                        # repair on the final tick. Per-step trimming would
-                        # non-monotonically shrink the cumulative filtered text
-                        # and break the streaming delta computation below.
-                        filtered_all = strip_filler_phrases(all_outputs, max_citations=len(rag_sources), is_final=stop)
+                        filtered_all = strip_filler_phrases(all_outputs)
                         filtered_delta = filtered_all[sent_filtered_len:] if len(filtered_all) > sent_filtered_len else ""
                         sent_filtered_len = max(sent_filtered_len, len(filtered_all))
                         logger.info(f"ws.generate.step(), all_outputs={repr(all_outputs)}, stop={stop}, generated={total_generated}/{max_total_tokens}")

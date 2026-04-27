@@ -1,0 +1,154 @@
+==============================================================================
+POLLEN HTTP API SANITY TEST - 10 queries
+==============================================================================
+
+------------------------------------------------------------------------------
+QUERY 1: do some insects have purple blood
+TIME: 96.5s    LEN: 999 chars    VERDICT: GOOD
+SOURCES (2):
+  - Encyclopedia of Insects - ScienceDirect | https://www.sciencedirect.com/book/edited-volume/9780123741448/encyclopedia-of-insects
+  - Hemiptera - Wikipedia | https://en.wikipedia.org/wiki/Hemiptera
+OUTPUT:
+No, insects do not have purple blood. Insects have a type of blood called hemolymph, which is typically colorless or greenish-yellow. The misconception about purple blood in insects might come from the presence of hemocyanin, a copper-containing protein that serves as an oxygen carrier in some arthropods, such as crustaceans and some species of insects like beetles and grasshoppers. However, hemocyanin is colorless when it's not oxygenated and only turns blue when it binds with oxygen. There is no evidence of purple hemolymph in insects.
+
+[Web Search Results]
+1. Insect Physiology - NCBI Bookshelf
+ Hemolymph is the open circulatory fluid of arthropods, which functions as both a transport medium and a hydrostatic skeleton. Insect hemolymph is typically colorless or greenish-yellow.
+ 2. Hemocyanin - Wikipedia
+ Hemocyanin is a metalloprotein containing two copper atoms per molecule which bind one molecule of oxygen. Hemocyanins are colorless when deoxygenated and turn blue when oxygenated
+
+------------------------------------------------------------------------------
+QUERY 2: what are the health effects of caffeine
+TIME: 119.3s    LEN: 1733 chars    VERDICT: GOOD
+SOURCES (4):
+  - Caffeine - Wikipedia | https://en.wikipedia.org/wiki/Caffeine
+  - Health effects of coffee - Wikipedia | https://en.wikipedia.org/wiki/Health_effects_of_coffee
+  - Caffeine intake and its sources: A review of national ... - PubMed | https://pubmed.ncbi.nlm.nih.gov/28605236/
+  - Pharmacology of caffeine and its effects on the human body - ScienceDirect | https://www.sciencedirect.com/science/article/pii/S2772417424000104
+OUTPUT:
+Caffeine, a stimulant drug, has a variety of health effects, both positive and negative. According to a 2017 umbrella review of meta-analyses, the consumption of coffee, which is the most common source of caffeine, is generally safe within usual levels of intake and is more likely to improve health outcomes than to cause harm at doses of 3 or 4 cups of coffee daily. However, there are some exceptions. For instance, women who consume coffee may have an increased risk of bone fractures and fetal loss or decreased birth weight during pregnancy. Additionally, the UK National Health Service advises that avoiding coffee may reduce anxiety.
+
+Regarding caffeine specifically, studies have shown that tolerance to the effects of caffeine occurs for caffeine-induced elevations in blood pressure and the subjective feelings of nervousness. However, sensitization, the process whereby effects become more prominent with use, may occur for positive effects such as feelings of alertness and wellbeing. High doses of caffeine (750 to 1200 mg/day spread throughout the day) have been shown to produce complete tolerance to some, but not all of the effects of caffeine.
+
+caffeine intake and its sources can vary widely. A review of national studies published in 2018 found that the mean total daily caffeine intake among children, adolescents, and adults ranged from 40 to 300 mg/day. The review also found that caffeine consumption has increased over the past decade, particularly among children and adolescents.
+
+Finally, studies have suggested that caffeine may have neuroprotective properties, potentially serving as a preventive measure against the onset of neurodegenerative conditions such as Alzheimer's and Parkinson's disease.</s>
+
+------------------------------------------------------------------------------
+QUERY 3: how does sleep affect memory
+TIME: 99.7s    LEN: 1522 chars    VERDICT: GOOD
+SOURCES (4):
+  - A systematic and meta-analytic review of the impact of sleep restriction on memory formation - ScienceDirect | https://www.sciencedirect.com/science/article/pii/S0149763424003981
+  - Sleep and memory - Wikipedia | https://en.wikipedia.org/wiki/Sleep_and_memory
+  - Sleep and learning - Wikipedia | https://en.wikipedia.org/wiki/Sleep_and_learning
+  - Impact of sleep duration on executive function and brain structure | https://www.nature.com/articles/s42003-022-03123-3
+OUTPUT:
+Sleep has a significant impact on memory formation. A systematic and meta-analytic review of 39 reports involving 1234 participants found that restricting sleep to 3-6.5 hours compared to normal sleep of 7-11 hours negatively affects memory. This is supported by the understanding that memory is a product of brain plasticity, the structural changes within synapses that create associations between stimuli, and it takes additional minutes, days, or even years to fully consolidate and become a stable memory.
+
+The relationship between sleep and memory is due to the different roles of NREM and REM sleep in the memory consolidation-optimization process. During a normal night of sleep, a person will alternate between periods of NREM and REM sleep, with each cycle being approximately 90 minutes long, containing a 20-30 minute bout of REM sleep. NREM sleep consists of sleep stages 1-4, and is where movement can be observed, while REM sleep is characterized by the lack of muscle activity. Physiological studies have shown that aside from the occasional twitch, no major movements occur during REM sleep.
+
+Furthermore, a study on the impact of sleep duration on executive function and brain structure found that those who slept for durations other than six-to-eight hours had significantly greater white matter hyperintensity volume, indicating a negative impact on brain structure and memory. Therefore, it is crucial to maintain an appropriate sleep duration for optimal memory formation and overall brain health.</s>
+
+------------------------------------------------------------------------------
+QUERY 4: hello
+TIME: 0.0s    LEN: 20 chars    VERDICT: BAD
+OUTPUT:
+Hey! How can I help?
+
+------------------------------------------------------------------------------
+QUERY 5: what is google gemini
+TIME: 93.4s    LEN: 1227 chars    VERDICT: GOOD
+SOURCES (3):
+  - Google Gemini - Wikipedia | https://en.wikipedia.org/wiki/Google_Gemini
+  - Gemini (language model) - Wikipedia | https://en.wikipedia.org/wiki/Gemini_(language_model)
+  - Google rebrands its AI services as Gemini, launches new app and subscription service | AP News | https://apnews.com/article/google-artificial-intelligence-gemini-smartphones-microsoft-9044770f1228af38d1e532cc640fb990
+OUTPUT:
+Google Gemini is a chatbot and language model developed by Google. The chatbot version of Google Gemini was summoned out of retirement in November 2022 in response to the viral sensation of OpenAI's ChatGPT. This led to Google executives issuing a "code red" alert and reassigning several teams to assist in the company's artificial intelligence (AI) efforts.
+
+In December 2023, Google's CEO Sundar Pichai and Demis Hassabis announced "Gemini 1.0," which contains three models: Gemini Ultra, designed for highly complex tasks; Gemini Pro, designed for a wide range of tasks; and Gemini Nano, designed for on-device tasks. At launch, Gemini Pro and Nano were integrated into Bard and the Pixel 8 Pro smartphone, respectively, while Gemini Ultra was set to power "Bard Advanced."
+
+Additionally, Google has rebranded its AI services as Gemini and launched a new app and subscription service. The free Gemini app will be available on smartphones, enabling people to quickly connect to a digital brain that can write for them, interpret what they're reading and seeing, and help manage their lives. The Bard chatbot, which Google introduced in 2023 to catch up with ChatGPT, will be cast aside with the advent of the Gemini app.</s>
+
+------------------------------------------------------------------------------
+QUERY 6: who is elon musk
+TIME: 97.9s    LEN: 1311 chars    VERDICT: GOOD
+SOURCES (4):
+  - ElonMusk| Tesla | https://www.tesla.com/elon-musk
+  - Who IsElonMusk? Net Worth, Achievements and Biography | https://www.investing.com/academy/statistics/elon-musk-facts/
+  - ElonMusk- Wikipedia | https://en.wikipedia.org/wiki/Elon_Musk
+  - WhoisElonMuskand what is his net worth? | https://www.bbc.com/news/articles/c0r1975ded7o
+OUTPUT:
+Elon Musk is a prominent figure in the technology and business world, born on June 28, 1971, in Pretoria, South Africa. He is the founder and CEO of Tesla, SpaceX, Neuralink, and The Boring Company. Musk's first company, Zip2, was established in 1995, focusing on offering an online city guide service in partnership with newspapers.
+
+Musk has been known for his significant influence in various industries, including electric vehicles, renewable energy, space exploration, and artificial intelligence. He has also been involved in political controversies, both in the United States and other countries such as the UK and Germany.
+
+In addition to his professional accomplishments, Musk has been the subject of headlines due to his personal wealth. As of the time these sources were published, Musk's net worth was significant, and there is speculation that he may become the world's first trillionaire.
+
+Regarding recent events, Musk has had a public feud with former U.S. President Donald Trump, which began in 2025 after Musk criticized the Trump administration's policies and alleged Trump's ties to sex offender Jeffrey Epstein on Twitter. This led to a series of heated exchanges between the two, with Musk calling for a third Trump impeachment and Trump threatening to cut Musk's government contracts.</s>
+
+------------------------------------------------------------------------------
+QUERY 7: best laptop 2026
+TIME: 89.4s    LEN: 1200 chars    VERDICT: GOOD
+SOURCES (4):
+  - Apple MacBook Neo emerges as company's most repairable laptop ... | https://www.reuters.com/world/china/apple-macbook-neo-emerges-companys-most-repairable-laptop-more-than-decade-2026-03-13/
+  - Testing Apple's 2026 16-inch MacBook Pro, M5 Max, and its new ... | https://arstechnica.com/gadgets/2026/03/testing-apples-2026-16-inch-macbook-pro-m5-max-and-its-new-performance-cores/
+  - Apple and Lenovo have the least repairable laptops, analysis ... | https://arstechnica.com/gadgets/2026/04/apple-has-the-lowest-grades-in-laptop-phone-repairability-analysis/
+  - M5 MacBook Air review: Still the best MacBook for almost ... | https://arstechnica.com/gadgets/2026/03/m5-macbook-air-review-still-the-best-macbook-for-almost-everybody/
+OUTPUT:
+Based on the search results provided, the best laptop of 2026 appears to be the Apple MacBook Neo, which has been praised for its repairability, a significant improvement from previous Apple laptops. According to the first source, the MacBook Neo is the most repairable laptop that Apple has produced in over a decade. The MacBook Neo is also likely to be an affordable option, with a starting price of $599.
+
+For those seeking more power and performance, the Apple MacBook Pro with the M5 Pro and M5 Max chips is an excellent choice. According to the second source, the M5 Pro and M5 Max chips offer substantial under-the-hood changes and a solid speed increase for Apple's fastest laptop processors. However, the MacBook Pro may not be as repairable as the MacBook Neo, as Apple received low grades in a laptop repairability report released by the Public Interest Research Group (PIRG) Education Fund.
+
+Overall, the best laptop of 2026 will depend on the user's specific needs and budget. Still, the MacBook Neo appears to be a strong contender for those seeking an affordable and repairable laptop, while the MacBook Pro is an excellent option for those who require more power and performance.</s>
+
+------------------------------------------------------------------------------
+QUERY 8: how does gravity work
+TIME: 123.3s    LEN: 1716 chars    VERDICT: GOOD
+SOURCES (4):
+  - How does gravity work? | HowStuffWorks | https://science.howstuffworks.com/environmental/earth/geophysics/question232.htm
+  - How Gravity Really Works According to Modern Physics | https://www.sciencenewstoday.org/how-gravity-really-works-according-to-modern-physics
+  - Gravity - Wikipedia | https://en.wikipedia.org/wiki/Gravity
+  - US Department of Labor releases 2024 injury, illness data ... | https://www.osha.gov/news/newsreleases/osha-trade-release/20250417
+OUTPUT:
+Gravity is a force that we experience every day, yet it remains somewhat of a mystery. It's the reason we stay grounded on Earth and why objects fall when dropped. According to Newton's theory, gravity is a force that attracts objects to one another. This was based on his observation of an apple falling from a tree, which led to his formulation of the law of universal gravitation.
+
+However, Einstein's theory of general relativity proposed a different perspective on gravity. Instead of being a force, gravity is the warping of space and time itself. This means that objects move along the curves of space-time, creating the effect of attraction.
+
+Gravity has been studied since ancient times, with the ancient Greek philosopher Archimedes discovering the center of gravity of a triangle. The concept of impetus was also proposed by the Byzantine Alexandrian scholar John Philoponus in the 6th century CE.
+
+In terms of its role in our daily lives, gravity keeps the moon in orbit around the Earth and is responsible for the tides. In the workplace, gravity can also play a role in workplace injuries and illnesses. According to the U.S. Department of Labor's Occupational Safety and Health Administration, workplace injury and illness data collected from its Injury Tracking Application showed that gravity-related incidents were reported in 2024.
+
+In summary, gravity is a force or warping of space-time that attracts objects to one another, with recent theories suggesting that it may be an emergent property, quantum gravity, entropic gravity, or even gravity that leaks into other dimensions. Its effects are experienced every day and play a crucial role in our daily lives and in the universe as a whole.</s>
+
+------------------------------------------------------------------------------
+QUERY 9: why is the ocean salty
+TIME: 55.3s    LEN: 696 chars    VERDICT: GOOD
+SOURCES (3):
+  - Why is the sea so salty? - BBC | https://www.bbc.com/future/article/20140411-why-is-the-sea-so-salty
+  - Sea - Wikipedia | https://en.wikipedia.org/wiki/Sea
+  - Saline water - Wikipedia | https://en.wikipedia.org/wiki/Saline_water
+OUTPUT:
+The ocean is salty primarily due to the process of evaporation and the influx of rivers carrying dissolved salts from the land. The concentration of salt in seawater is approximately 3.5%, which amounts to around 50 million billion tonnes of salt. The salt content in rivers is significantly lower, at less than 1/200th the amount found in seawater. As the sun heats the ocean's surface, water evaporates, leaving the salt behind, which leads to an increase in salinity. The salt concentration varies depending on the location, with polar regions having less salty water due to dilution from melting ice, and tropical regions having saltier and denser water due to the extra heat. (Sources: )</s>
+
+------------------------------------------------------------------------------
+QUERY 10: what causes earthquakes
+TIME: 133.0s    LEN: 2114 chars    VERDICT: GOOD
+SOURCES (4):
+  - Earthquakes yes, disasters no | npj Natural HazardsAdvances in earthquake and cascading disasters - ScienceDirectHistory of deadly earthquakes - BBC NewsEarthquakes News | Latest Headlines and Stories | ReutersEarthquakes | Latest News & Updates | AP NewsWhatcauses earthquakes? A geologist explains where they’re most c…Whatcauses earthquakes? A geologist explains where they’re most c…Advances in earthquake and cascading disasters -ScienceDirectEarthquakesyes, disasters no | npj Natural HazardsA list of the world's deadliest earthquakes in the past 25 ... | https://www.nature.com/articles/s44304-024-00049-0
+  - What causes earthquakes? A geologist explains where they're most common ... | https://theconversation.com/what-causes-earthquakes-a-geologist-explains-where-theyre-most-common-and-why-213337
+  - The generation of large earthquakes - Nature | https://www.nature.com/articles/s43017-020-00108-w
+  - The physical mechanisms of induced earthquakes - Nature | https://www.nature.com/articles/s43017-023-00497-8
+OUTPUT:
+Earthquakes are caused by the movement of tectonic plates in the Earth's lithosphere, which is the rigid outer layer of the planet. When these plates move, they can cause stress to build up along fault lines, which are areas where the plates meet and can slide past each other. This stress can cause the rocks along the fault line to break, releasing energy in the form of seismic waves, which we experience as an earthquake.
+
+There are three main types of plate boundaries where earthquakes are most common: convergent boundaries, where plates are pushing together; divergent boundaries, where plates are moving apart; and transform boundaries, where plates are sliding past each other. Earthquakes can also be triggered by human activities, such as mining, construction, and the injection or extraction of fluids from the ground. These are known as induced earthquakes, and they can occur when the stress on the Earth's crust is altered by human activities.
+
+According to a geologist interviewed in an article from The Conversation, earthquakes along subduction zones, where one tectonic plate is forced beneath another, are shallow on the oceanic side but get deeper as they move inland. The earthquakes that occur in these regions can be particularly destructive, as they often affect heavily populated areas.
+
+In addition to the location of earthquakes, the size of the earthquake is also an important factor in determining its impact. The magnitude of an earthquake is a measure of the amount of energy released by the quake, and it is usually measured using the Richter scale. The larger the magnitude, the more destructive the earthquake is likely to be.
+
+while scientists have made great strides in understanding the causes of earthquakes, there is still much that is not known about these events. Earthquakes are complex phenomena that are influenced by a wide range of factors, including the properties of the rocks involved, the stresses on the faults, and the presence of fluids in the crust. As a result, predicting exactly when and where an earthquake will occur remains a significant challenge.</s>
+
+==============================================================================
+SUMMARY: GOOD 9/10   BAD 1/10
+==============================================================================

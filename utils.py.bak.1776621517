@@ -1,0 +1,79 @@
+from typing import Dict, List, Tuple, Union
+
+import hivemind
+import torch
+from petals import AutoDistributedModelForCausalLM
+from transformers import AutoTokenizer, PreTrainedModel, PreTrainedTokenizer
+
+import config
+from data_structures import ModelConfig
+
+logger = hivemind.get_logger(__file__)
+
+
+def load_models() -> Dict[str, Tuple[PreTrainedModel, PreTrainedTokenizer, ModelConfig]]:
+    models = {}
+    for family in config.MODEL_FAMILIES.values():
+        for model_config in family:
+            backend_config = model_config.backend
+
+            logger.info(f"Loading tokenizer for {backend_config.repository}")
+            tokenizer = AutoTokenizer.from_pretrained(backend_config.repository, add_bos_token=False, use_fast=False)
+
+            logger.info(
+                f"Loading model {backend_config.repository} with adapter {backend_config.adapter} in {config.TORCH_DTYPE}"
+            )
+            # We set use_fast=False since LlamaTokenizerFast takes a long time to init
+            model = AutoDistributedModelForCausalLM.from_pretrained(
+                backend_config.repository,
+                active_adapter=backend_config.adapter,
+                torch_dtype=config.TORCH_DTYPE,
+                initial_peers=config.INITIAL_PEERS,
+                max_retries=3,
+            )
+            model = model.to(config.DEVICE)
+
+            for key in [backend_config.key] + list(backend_config.aliases):
+                models[key] = model, tokenizer, backend_config
+    return models
+
+
+def safe_decode(tokenizer: PreTrainedTokenizer, outputs: Union[torch.Tensor, List[int]]) -> str:
+    # Workaround to make SentencePiece .decode() keep leading spaces in a token
+    fake_token = tokenizer("^")["input_ids"][0]
+    outputs = outputs.tolist() if isinstance(outputs, torch.Tensor) else outputs
+    result = tokenizer.decode([fake_token] + outputs)
+
+    # We use .lstrip() since SentencePiece may add leading spaces, e.g. if the outputs are "</s>"
+    return result.lstrip()[1:]
+
+# ============================================================
+# Response post-processing: strip hedging / filler phrases
+# ============================================================
+import re as _re
+
+_FILLER_PATTERNS = [
+    _re.compile(r"However,?\s+it'?s\s+(also\s+)?important\s+to\s+note\s+that\s+", _re.IGNORECASE),
+    _re.compile(r"(?:[Ii]t'?s|[Ii]t\s+is)\s+(also\s+)?important\s+to\s+note\s+(that\s+)?", _re.IGNORECASE),
+    _re.compile(r"(?:[Ii]t'?s|[Ii]t\s+is)\s+(also\s+)?worth\s+(mentioning|noting)\s+(that\s+)?", _re.IGNORECASE),
+    _re.compile(r"(This|That|Consumption|Amounts?|Numbers?|Figures?|Results?|Values?)\s+can\s+vary\s+widely[^.]*\.?", _re.IGNORECASE),
+    _re.compile(r"however,?\s+this\s+can\s+vary[^.]*\.?", _re.IGNORECASE),
+    _re.compile(r"[Ss]ome\s+(people|individuals|folks|users)\s+(may|might)\s+[^.]*?while\s+others\s+(might|may|do)\s+[^.]*?(?=\.|$)", _re.IGNORECASE | _re.DOTALL),
+    _re.compile(r"\s*,?\s*(varies|varying)?\s*from\s+person\s+to\s+person", _re.IGNORECASE),
+    _re.compile(r"[Ii]t\s+depends\s+on\s+the\s+person[^.]*\.?", _re.IGNORECASE),
+]
+
+
+def strip_filler_phrases(text):
+    """Remove hedging/filler phrases from LLM output."""
+    if not text:
+        return text
+    for pat in _FILLER_PATTERNS:
+        text = pat.sub("", text)
+    text = _re.sub(r" {2,}", " ", text)
+    text = _re.sub(r"\s+([,.;:!?])", r"\1", text)
+    text = _re.sub(r"\.\s*\.+", ".", text)
+    text = _re.sub(r"\n{3,}", "\n\n", text)
+    text = _re.sub(r"^[\s.,;:]+", "", text)
+    text = _re.sub(r"\s+\.\s+", ". ", text)
+    return text

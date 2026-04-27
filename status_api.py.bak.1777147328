@@ -1,7 +1,5 @@
-import json
 import subprocess
 import time
-import urllib.request
 import hivemind
 from flask import jsonify
 
@@ -12,14 +10,6 @@ logger = hivemind.get_logger(__file__)
 
 _cache = {"data": None, "time": 0}
 CACHE_TTL = 10
-
-# Server-side proxy for the WordPress curated-sources API. Lives here so the
-# browser never makes a cross-origin request (the WP endpoint doesn't send
-# Access-Control-Allow-Origin). Cached for 5 minutes since votes/categories
-# change slowly and the modal can be opened repeatedly.
-CURATED_SOURCES_URL = "https://makeyouraismarter.com/wp-json/pollen/v1/sources?limit=50"
-CURATED_SOURCES_TTL = 300
-_curated_sources_cache = {"data": None, "expires_at": 0.0}
 
 # Map truncated peer IDs to friendly node info
 NODE_MAP = {
@@ -183,35 +173,3 @@ def api_status():
     except Exception as e:
         logger.warning("Status API error:", exc_info=True)
         return jsonify({"ok": False, "error": str(e)})
-
-
-@app.route("/api/curated-sources")
-def api_curated_sources():
-    """Server-side proxy for the WordPress curated-sources endpoint.
-
-    Avoids browser CORS issues since the WP API does not set
-    Access-Control-Allow-Origin. Response is cached in-process for
-    CURATED_SOURCES_TTL seconds.
-    """
-    now = time.time()
-    cached = _curated_sources_cache["data"]
-    if cached is not None and now < _curated_sources_cache["expires_at"]:
-        return jsonify(cached)
-
-    try:
-        req = urllib.request.Request(
-            CURATED_SOURCES_URL,
-            headers={"User-Agent": "Pollen-RAG/1.0", "Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8", errors="replace"))
-
-        _curated_sources_cache["data"] = data
-        _curated_sources_cache["expires_at"] = now + CURATED_SOURCES_TTL
-        return jsonify(data)
-    except Exception as e:
-        logger.warning("Curated sources proxy fetch failed: %s", e)
-        # Serve stale cache if available — better than a hard error in the UI.
-        if cached is not None:
-            return jsonify(cached)
-        return jsonify({"ok": False, "error": str(e), "sources": [], "count": 0}), 502

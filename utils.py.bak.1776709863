@@ -53,53 +53,22 @@ def safe_decode(tokenizer: PreTrainedTokenizer, outputs: Union[torch.Tensor, Lis
 import re as _re
 
 _FILLER_PATTERNS = [
-    # Word boundaries (\b) on the leading word prevent matches that would start
-    # mid-word (e.g. "fooIt is important..." -> only matches when "It" is its own
-    # word). Trailing whitespace `\s+` already implies a non-word boundary on the
-    # right; explicit `\b` is added on patterns whose final captured word could
-    # otherwise be a prefix of a longer word ("person" vs "personal").
-    _re.compile(r"\bHowever,?\s+it'?s\s+(also\s+)?important\s+to\s+note\s+that\s+", _re.IGNORECASE),
-    _re.compile(r"\b(?:[Ii]t'?s|[Ii]t\s+is)\s+(also\s+)?important\s+to\s+note\s+(that\s+)?", _re.IGNORECASE),
-    _re.compile(r"\b(?:[Ii]t'?s|[Ii]t\s+is)\s+(also\s+)?worth\s+(mentioning|noting)\s+(that\s+)?", _re.IGNORECASE),
-    _re.compile(r"\b(This|That|Consumption|Amounts?|Numbers?|Figures?|Results?|Values?)\s+can\s+vary\s+widely\b[^.]*\.?", _re.IGNORECASE),
-    _re.compile(r"\bhowever,?\s+this\s+can\s+vary\b[^.]*\.?", _re.IGNORECASE),
-    _re.compile(r"\b[Ss]ome\s+(people|individuals|folks|users)\s+(may|might)\s+[^.]*?\bwhile\s+others\s+(might|may|do)\s+[^.]*?(?=\.|$)", _re.IGNORECASE | _re.DOTALL),
-    _re.compile(r"\s*,?\s*(varies|varying)?\s*\bfrom\s+person\s+to\s+person\b", _re.IGNORECASE),
-    _re.compile(r"\b[Ii]t\s+depends\s+on\s+the\s+person\b[^.]*\.?", _re.IGNORECASE),
+    _re.compile(r"However,?\s+it'?s\s+(also\s+)?important\s+to\s+note\s+that\s+", _re.IGNORECASE),
+    _re.compile(r"(?:[Ii]t'?s|[Ii]t\s+is)\s+(also\s+)?important\s+to\s+note\s+(that\s+)?", _re.IGNORECASE),
+    _re.compile(r"(?:[Ii]t'?s|[Ii]t\s+is)\s+(also\s+)?worth\s+(mentioning|noting)\s+(that\s+)?", _re.IGNORECASE),
+    _re.compile(r"(This|That|Consumption|Amounts?|Numbers?|Figures?|Results?|Values?)\s+can\s+vary\s+widely[^.]*\.?", _re.IGNORECASE),
+    _re.compile(r"however,?\s+this\s+can\s+vary[^.]*\.?", _re.IGNORECASE),
+    _re.compile(r"[Ss]ome\s+(people|individuals|folks|users)\s+(may|might)\s+[^.]*?while\s+others\s+(might|may|do)\s+[^.]*?(?=\.|$)", _re.IGNORECASE | _re.DOTALL),
+    _re.compile(r"\s*,?\s*(varies|varying)?\s*from\s+person\s+to\s+person", _re.IGNORECASE),
+    _re.compile(r"[Ii]t\s+depends\s+on\s+the\s+person[^.]*\.?", _re.IGNORECASE),
     # Self-referential AI disclaimers (apostrophe-tolerant: ' or \u2019)
-    _re.compile(r"\bI\s+don['\u2019]?t\s+have\s+personal\s+experiences\b", _re.IGNORECASE),
-    _re.compile(r"\bI\s+don['\u2019]?t\s+have\s+emotions\b", _re.IGNORECASE),
+    _re.compile(r"I\s+don['\u2019]?t\s+have\s+personal\s+experiences", _re.IGNORECASE),
+    _re.compile(r"I\s+don['\u2019]?t\s+have\s+emotions", _re.IGNORECASE),
     _re.compile(r"\bAs\s+an\s+AI\b", _re.IGNORECASE),
     _re.compile(r"\bAs\s+a\s+language\s+model\b", _re.IGNORECASE),
     _re.compile(r"\bI\s+cannot\s+feel\b", _re.IGNORECASE),
-    _re.compile(r"\bI['\u2019]?m\s+just\s+an\s+AI\b", _re.IGNORECASE),
+    _re.compile(r"I['\u2019]?m\s+just\s+an\s+AI", _re.IGNORECASE),
     _re.compile(r"\bI\s+am\s+an\s+AI\s+assistant\b", _re.IGNORECASE),
-    # Meta-commentary about how the response was generated. These are pure
-    # process disclaimers the user never needs to see. Lookaheads on the
-    # sentence terminator preserve it so the preceding real sentence keeps
-    # its period — `strip_filler_phrases` then collapses the "X.." that
-    # results when the meta was an entire sentence.
-    # "This response/answer is based (solely) on ..." -> drop whole sentence
-    _re.compile(
-        r"(?i)(?:^|(?<=[.!?])\s+|\n)"
-        r"[Tt]his\s+(?:response|answer)\s+is\s+based(?:\s+solely)?\s+on"
-        r"[^.!?\n]*(?=[.!?]|\n|$)"
-    ),
-    # ", (and) does not incorporate any additional knowledge ..." — drop the
-    # clause (including its leading connector) but keep the sentence's
-    # trailing terminator so the main clause still reads as a sentence.
-    _re.compile(
-        r"(?i)(?:,\s*(?:and\s+)?|\band\s+|(?<=[.!?])\s+|^|\n)"
-        r"does\s+not\s+incorporate\s+any\s+additional\s+knowledge"
-        r"[^.!?\n]*(?=[.!?]|\n|$)"
-    ),
-    # "Based solely on the provided search results, ..." -> drop the prefix
-    # and its trailing comma. Re-capitalization below restores the next
-    # word's leading letter when this fires at sentence start.
-    _re.compile(
-        r"(?i)(?:^|(?<=[.!?])\s+|\n)"
-        r"[Bb]ased\s+solely\s+on\s+the\s+provided\s+search\s+results?\s*,?\s*"
-    ),
 ]
 
 # Opening meta filter: drop a leading clause/sentence that describes what the
@@ -386,104 +355,8 @@ def _deduplicate_response(text):
     return text
 
 
-# ============================================================
-# Citation clamping: Mixtral occasionally cites a source number
-# that exceeds the actual RAG source count (e.g. "[14]" when
-# only 4 sources were returned). When the real count is known
-# we clamp any out-of-range [N] to [max_sources]. With max_sources
-# unset or 0 we leave [N] alone — non-RAG prose may legitimately
-# use bracketed numbers and the existing pipeline already strips
-# orphan [N] markers in `_strip_urls()`.
-# ============================================================
-_CITATION_NUM_RE = _re.compile(r"\[\s*(\d{1,3})\s*\]")
-
-
-def _cap_citation_numbers(text, max_sources):
-    """Clamp [N] where N > max_sources to [max_sources]; drop [0]/[N<1]."""
-    if not text or not max_sources or max_sources < 1:
-        return text
-
-    def _fix(m):
-        n = int(m.group(1))
-        if n < 1:
-            return ""
-        if n > max_sources:
-            return f"[{max_sources}]"
-        return m.group(0)
-
-    return _CITATION_NUM_RE.sub(_fix, text)
-
-
-# ============================================================
-# Post-strip repair: handle the rare cases where a filler-phrase
-# strip still leaves a partial word at the start (defensive layer
-# behind the \b boundaries on the patterns themselves) or an
-# incomplete trailing sentence after a clause was removed.
-# ============================================================
-# A short suffix-like fragment leading the response strongly suggests an
-# over-eager strip ate the word's prefix (e.g. "...important" -> "tant"
-# leftover). Catches the standard English derivational/inflectional suffix
-# vocabulary when one sits alone at the very start of the text, followed
-# by whitespace and more content.
-_SUFFIX_FRAGMENT_RE = _re.compile(
-    r"^[\s.,;:]*"
-    r"(?:ing|tion|sion|ment|ness|able|ible|ant|ent|ly|ed|er|es|al|ity|ous|ive|ize|ise|s)"
-    r"[.,;:]?\s+\S",
-    _re.IGNORECASE,
-)
-
-
-def _trim_mid_word_start(text):
-    """Drop a leading orphan word-fragment if a strip cut mid-word and left a
-    standalone English suffix at the start (e.g. "ing the result is clear" or
-    "tion was difficult"). Conservative on purpose: only fires when the first
-    whitespace-delimited token is exactly a common suffix and another word
-    follows. The primary defense against mid-word cuts is the `\\b` boundary
-    on each filler pattern; this is the safety net for any case that slips
-    through (or for edge cases caused by future patterns)."""
-    if not text:
-        return text
-    m = _SUFFIX_FRAGMENT_RE.match(text)
-    if not m:
-        return text
-    # Drop the suffix fragment but keep the character that the lookahead
-    # `\\S` consumed back in the result by trimming only up to the start of
-    # that following non-space char.
-    cut = m.end() - 1
-    return text[cut:].lstrip()
-
-
-def _trim_incomplete_trailing_sentence(text):
-    """If `text` ends without a sentence terminator, trim back to the last
-    complete sentence. Preserves text that ends with closing punctuation
-    immediately after a terminator (e.g. '.")', '?")'). Returns the input
-    unchanged when no earlier terminator exists."""
-    if not text:
-        return text
-    rstripped = text.rstrip()
-    if not rstripped:
-        return text
-    last = rstripped[-1]
-    if last in ".!?":
-        return text
-    if last in "\"')]}" and len(rstripped) >= 2 and rstripped[-2] in ".!?":
-        return text
-    trimmed = _trim_to_last_sentence(rstripped)
-    if trimmed and trimmed != rstripped:
-        return trimmed
-    return text
-
-
-def strip_filler_phrases(text, max_citations=None, is_final=True):
-    """Remove hedging/filler phrases, raw URLs, loop-repetition, and
-    out-of-range citation markers from LLM output. When `max_citations`
-    is provided (the number of RAG sources actually returned for this
-    response), any inline [N] with N > max_citations is clamped to
-    [max_citations]. `is_final` gates the post-strip word/sentence
-    repair pass — callers that stream incremental output should pass
-    `is_final=False` so the trailing partial sentence is kept until
-    the final tick (otherwise per-step trimming would non-monotonically
-    shrink the cumulative filtered text)."""
+def strip_filler_phrases(text):
+    """Remove hedging/filler phrases, raw URLs, and loop-repetition from LLM output."""
     if not text:
         return text
     text = _strip_opening_meta_sentence(text)
@@ -491,10 +364,6 @@ def strip_filler_phrases(text, max_citations=None, is_final=True):
         text = pat.sub("", text)
     text = _strip_urls(text)
     text = _deduplicate_response(text)
-    text = _cap_citation_numbers(text, max_citations)
-    if is_final:
-        text = _trim_mid_word_start(text)
-        text = _trim_incomplete_trailing_sentence(text)
     text = _re.sub(r" {2,}", " ", text)
     text = _re.sub(r"\s+([,.;:!?])", r"\1", text)
     text = _re.sub(r",\s*,+", ",", text)
@@ -502,9 +371,4 @@ def strip_filler_phrases(text, max_citations=None, is_final=True):
     text = _re.sub(r"\n{3,}", "\n\n", text)
     text = _re.sub(r"^[\s.,;:]+", "", text)
     text = _re.sub(r"\s+\.\s+", ". ", text)
-    # Meta-strip fixups: if a sentence terminator landed directly against a
-    # capital letter ("X.Y"), reinsert the word space; and if stripping left
-    # a lowercase leading letter ("caffeine ..."), capitalize it.
-    text = _re.sub(r"([.!?])([A-Z])", r"\1 \2", text)
-    text = _re.sub(r"^(\s*)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text, count=1)
     return text

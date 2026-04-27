@@ -76,7 +76,7 @@ def http_api_generate():
             max_new_tokens=max_new_tokens,
         )
         outputs = safe_decode(tokenizer, outputs[0, n_input_tokens:])
-        outputs = strip_filler_phrases(outputs, max_citations=len(rag_results))
+        outputs = strip_filler_phrases(outputs)
         logger.info(f"generate(), outputs={repr(outputs)}")
 
         resp = {"ok": True, "outputs": outputs}

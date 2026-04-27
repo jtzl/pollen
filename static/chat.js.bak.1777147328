@@ -943,7 +943,7 @@ inputEl.addEventListener('input', function() { updateSendButton(); });
 
 // ==================== Curated Sources ====================
 
-var SOURCES_API = '/api/curated-sources';
+var SOURCES_API = 'https://makeyouraismarter.com/wp-json/pollen/v1/sources?limit=50';
 
 function openSources() {
   document.getElementById('sources-modal').classList.remove('hidden');

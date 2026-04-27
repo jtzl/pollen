@@ -14,8 +14,8 @@ logger = hivemind.get_logger(__file__)
 @app.post("/api/v1/generate")
 def http_api_generate():
     try:
-        model_name = get_typed_arg("model", str, config.MODEL_REPO)
-        inputs = get_typed_arg("inputs", str)
+        model_name = get_typed_arg("model", str)
+        inputs = request.values.get("inputs")
         do_sample = get_typed_arg("do_sample", int, False)
         temperature = get_typed_arg("temperature", float)
         top_k = get_typed_arg("top_k", int)
@@ -59,12 +59,6 @@ def http_api_generate():
         else:
             n_input_tokens = 0
 
-        # Petals requires exactly one of max_length/max_new_tokens. If the caller
-        # supplied neither, default to DEFAULT_MAX_TOKENS so short prompts still
-        # get a full-length answer instead of an AssertionError.
-        if max_length is None and max_new_tokens is None:
-            max_new_tokens = config.DEFAULT_MAX_TOKENS
-
         outputs = model.generate(
             inputs=inputs,
             do_sample=do_sample,
@@ -76,7 +70,7 @@ def http_api_generate():
             max_new_tokens=max_new_tokens,
         )
         outputs = safe_decode(tokenizer, outputs[0, n_input_tokens:])
-        outputs = strip_filler_phrases(outputs, max_citations=len(rag_results))
+        outputs = strip_filler_phrases(outputs)
         logger.info(f"generate(), outputs={repr(outputs)}")
 
         resp = {"ok": True, "outputs": outputs}
@@ -88,18 +82,5 @@ def http_api_generate():
 
 
 def get_typed_arg(name, expected_type, default=None):
-    # Prefer form/querystring values; fall back to JSON body so the endpoint
-    # also accepts `Content-Type: application/json` clients.
     value = request.values.get(name)
-    if value is None:
-        payload = request.get_json(silent=True) or {}
-        value = payload.get(name)
-    if value is None:
-        return default
-    if expected_type is bool:
-        if isinstance(value, bool):
-            return value
-        return str(value).strip().lower() in ("1", "true", "yes", "on")
-    if isinstance(value, expected_type):
-        return value
-    return expected_type(value)
+    return expected_type(value) if value is not None else default

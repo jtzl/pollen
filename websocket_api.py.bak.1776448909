@@ -11,7 +11,7 @@ import speed_tracker
 import rag_pipeline
 import rag_search
 from app import models, sock
-from utils import safe_decode, strip_filler_phrases
+from utils import safe_decode
 
 logger = hivemind.get_logger(__file__)
 
@@ -37,18 +37,6 @@ def ws_api_generate(ws):
                 request = json.loads(ws.receive(timeout=config.STEP_TIMEOUT))
                 assert request["type"] == "generate"
                 inputs = request.get("inputs") or None
-                # Short-circuit greetings: return a canned reply and wait for next ws message.
-                if inputs is not None:
-                    _user_check = rag_pipeline.extract_user_message(inputs)
-                    if rag_pipeline.is_greeting(_user_check):
-                        greeting = rag_pipeline.random_greeting_response()
-                        logger.info(f"ws.generate greeting short-circuit -> {greeting!r}")
-                        ws.send(json.dumps({
-                            "ok": True, "outputs": greeting, "stop": True,
-                            "token_count": 0, "generated": 0,
-                        }))
-                        continue
-
                 # RAG: augment user message with web search if needed
                 if inputs is not None:
                     user_msg = rag_pipeline.extract_user_message(inputs)
@@ -76,7 +64,6 @@ def ws_api_generate(ws):
                 max_total_tokens = request.get("max_total_tokens", 80)
 
                 all_outputs = ""
-                sent_filtered_len = 0
                 delta_q = []
                 total_generated = 0
                 stop = False
@@ -136,16 +123,9 @@ def ws_api_generate(ws):
                         all_outputs = combined
                         token_count = len(delta_q + delta)
                         delta_q = []
-                        # is_final=stop: only run the trailing-sentence/mid-word
-                        # repair on the final tick. Per-step trimming would
-                        # non-monotonically shrink the cumulative filtered text
-                        # and break the streaming delta computation below.
-                        filtered_all = strip_filler_phrases(all_outputs, max_citations=len(rag_sources), is_final=stop)
-                        filtered_delta = filtered_all[sent_filtered_len:] if len(filtered_all) > sent_filtered_len else ""
-                        sent_filtered_len = max(sent_filtered_len, len(filtered_all))
                         logger.info(f"ws.generate.step(), all_outputs={repr(all_outputs)}, stop={stop}, generated={total_generated}/{max_total_tokens}")
                         step_msg = {
-                            "ok": True, "outputs": filtered_delta, "stop": stop,
+                            "ok": True, "outputs": outputs, "stop": stop,
                             "token_count": token_count, "generated": total_generated,
                         }
                         if stop and rag_sources:
