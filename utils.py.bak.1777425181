@@ -297,44 +297,18 @@ def _strip_urls(text):
     text = _BARE_URL_RE.sub("", text)
     # 7) Partial / truncated URL remnants from token cutoff.
     text = _PARTIAL_URL_RE.sub("", text)
-    # 7b) Truncated trailing "<" fragments left behind when token limit
-    # cuts off before the URL body even started. _ANGLE_URL_RE and
-    # _PARTIAL_URL_RE require http(s) inside the brackets, so a "<"
-    # with no body still slips through. Examples:
-    #   "...retrieved from <"     -> ""
-    #   "...source: <"            -> ""
-    #   "...etrieved from <"      -> "" (truncated connector form)
-    #   "Read more at\n  <"       -> "Read more at"
-    # Pattern A drops a known attribution connector + "<...$".
-    # Pattern B drops any orphan "<" sitting alone at end of a line
-    # (whitespace required before it so mid-prose "<" is preserved).
-    text = _re.sub(
-        r"(?im)(?:,\s*)?"
-        r"\b(?:available\s+at|retrieved\s+from|read\s+more\s+at|"
-        r"source[s]?|see(?:\s+also)?|found\s+at|"
-        r"more\s+(?:info(?:\s+at)?|details|at)|"
-        r"link[s]?|url|visit)"
-        r"\s*[:\-]?\s*<[^>\n]*$",
-        "",
-        text,
-    )
-    text = _re.sub(r"(?m)\s+<[^\s>]*$", "", text)
     # 8) Cleanup: empty parens/brackets left behind by markdown strip.
     text = _re.sub(r"\(\s*\)", "", text)
     text = _re.sub(r"\[\s*\]", "", text)
-    # 8b) Drop orphan "(-" artifacts left over when URL stripping consumes
-    # a URL inside a parenthesized phrase. Example pipeline:
+    # 8b) Drop orphan "(-" prefix artifacts left over when URL stripping
+    # consumes a URL inside a parenthesized phrase. Example pipeline:
     #   raw  "(<https://buzz.com>-uzz)"
     #   -> URL strip -> "(-uzz)"
-    #   -> here     -> "uzz"
-    # Two passes:
-    #   First, the full "(-word)" form so the closing paren goes with it
-    #   ("(-uzz)" -> "uzz", "(-nd)" -> "nd", "(-hese)" -> "hese",
-    #    "(-, foo)" -> "foo").
-    #   Then a fallback for the open-only case where the close paren was
-    #   already lost upstream ("(-uzz " -> "uzz "). Numeric content like
-    #   "(-1, 2)" stays untouched because both patterns require a letter.
-    text = _re.sub(r"\(-,?\s*([a-zA-Z][a-zA-Z]*)\)", r"\1", text)
+    #   -> here     -> "uzz)"
+    # Optional comma + whitespace tolerated so "(-, foo" -> "foo". The
+    # lookahead preserves the following letter rather than consuming it,
+    # so e.g. "(-nd" -> "nd" and "(-hese" -> "hese". Numeric content
+    # like "(-1, 2)" is untouched because the lookahead requires a letter.
     text = _re.sub(r"\(-,?\s*(?=[a-zA-Z])", "", text)
     # 9) Dangling connector phrases with no URL remaining.
     text = _DANGLING_PREFIX_RE.sub("", text)

@@ -1,0 +1,105 @@
+from traceback import format_exc
+
+import hivemind
+from flask import jsonify, request
+
+import config
+import rag_pipeline
+from app import app, models
+from utils import safe_decode, strip_filler_phrases
+
+logger = hivemind.get_logger(__file__)
+
+
+@app.post("/api/v1/generate")
+def http_api_generate():
+    try:
+        model_name = get_typed_arg("model", str, config.MODEL_REPO)
+        inputs = get_typed_arg("inputs", str)
+        do_sample = get_typed_arg("do_sample", int, False)
+        temperature = get_typed_arg("temperature", float)
+        top_k = get_typed_arg("top_k", int)
+        top_p = get_typed_arg("top_p", float)
+        repetition_penalty = get_typed_arg("repetition_penalty", float)
+        max_length = get_typed_arg("max_length", int)
+        max_new_tokens = get_typed_arg("max_new_tokens", int)
+        use_rag = get_typed_arg("rag", str, "auto")
+        logger.info(f"generate(), {model_name=}, {inputs=}")
+
+        model, tokenizer, backend_config = models[model_name]
+        if not backend_config.public_api:
+            raise ValueError(f"We do not provide public API for {model_name} due to license restrictions")
+
+        # Short-circuit greetings with a canned reply before touching Mixtral.
+        # Bare "hi" / "hey there" / "good morning" used to free-form continue
+        # into unrelated content (product names, code snippets) because the HTTP
+        # path expects pre-formatted [INST] prompts from bots.
+        if inputs is not None and rag_pipeline.is_greeting(inputs):
+            greeting = rag_pipeline.random_greeting_response()
+            logger.info(f"generate() greeting short-circuit -> {greeting!r}")
+            return jsonify(ok=True, outputs=greeting)
+
+        # RAG augmentation + Mixtral [INST] wrapping.
+        # build_augmented_prompt always returns a properly wrapped [INST]...[/INST] prompt
+        # (with RAG context if needs_search is True, or just `[INST] {user} [/INST]` otherwise).
+        # When use_rag == "off" we bypass the search pipeline but still wrap manually so
+        # Mixtral receives a well-formed instruction prompt instead of raw text.
+        rag_results = []
+        if inputs is not None:
+            if use_rag != "off":
+                inputs, rag_results = rag_pipeline.build_augmented_prompt(inputs)
+                if rag_results:
+                    logger.info(f"generate(), RAG augmented with {len(rag_results)} results")
+            else:
+                inputs = f"[INST] {inputs} [/INST]"
+
+        if inputs is not None:
+            inputs = tokenizer(inputs, return_tensors="pt")["input_ids"].to(config.DEVICE)
+            n_input_tokens = inputs.shape[1]
+        else:
+            n_input_tokens = 0
+
+        # Petals requires exactly one of max_length/max_new_tokens. If the caller
+        # supplied neither, default to DEFAULT_MAX_TOKENS so short prompts still
+        # get a full-length answer instead of an AssertionError.
+        if max_length is None and max_new_tokens is None:
+            max_new_tokens = config.DEFAULT_MAX_TOKENS
+
+        outputs = model.generate(
+            inputs=inputs,
+            do_sample=do_sample,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            repetition_penalty=repetition_penalty,
+            max_length=max_length,
+            max_new_tokens=max_new_tokens,
+        )
+        outputs = safe_decode(tokenizer, outputs[0, n_input_tokens:])
+        outputs = strip_filler_phrases(outputs, max_citations=len(rag_results))
+        logger.info(f"generate(), outputs={repr(outputs)}")
+
+        resp = {"ok": True, "outputs": outputs}
+        if rag_results:
+            resp["rag_sources"] = [{"title": r["title"], "url": r["url"]} for r in rag_results]
+        return jsonify(resp)
+    except Exception:
+        return jsonify(ok=False, traceback=format_exc())
+
+
+def get_typed_arg(name, expected_type, default=None):
+    # Prefer form/querystring values; fall back to JSON body so the endpoint
+    # also accepts `Content-Type: application/json` clients.
+    value = request.values.get(name)
+    if value is None:
+        payload = request.get_json(silent=True) or {}
+        value = payload.get(name)
+    if value is None:
+        return default
+    if expected_type is bool:
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+    if isinstance(value, expected_type):
+        return value
+    return expected_type(value)

@@ -297,28 +297,6 @@ def _strip_urls(text):
     text = _BARE_URL_RE.sub("", text)
     # 7) Partial / truncated URL remnants from token cutoff.
     text = _PARTIAL_URL_RE.sub("", text)
-    # 7b) Truncated trailing "<" fragments left behind when token limit
-    # cuts off before the URL body even started. _ANGLE_URL_RE and
-    # _PARTIAL_URL_RE require http(s) inside the brackets, so a "<"
-    # with no body still slips through. Examples:
-    #   "...retrieved from <"     -> ""
-    #   "...source: <"            -> ""
-    #   "...etrieved from <"      -> "" (truncated connector form)
-    #   "Read more at\n  <"       -> "Read more at"
-    # Pattern A drops a known attribution connector + "<...$".
-    # Pattern B drops any orphan "<" sitting alone at end of a line
-    # (whitespace required before it so mid-prose "<" is preserved).
-    text = _re.sub(
-        r"(?im)(?:,\s*)?"
-        r"\b(?:available\s+at|retrieved\s+from|read\s+more\s+at|"
-        r"source[s]?|see(?:\s+also)?|found\s+at|"
-        r"more\s+(?:info(?:\s+at)?|details|at)|"
-        r"link[s]?|url|visit)"
-        r"\s*[:\-]?\s*<[^>\n]*$",
-        "",
-        text,
-    )
-    text = _re.sub(r"(?m)\s+<[^\s>]*$", "", text)
     # 8) Cleanup: empty parens/brackets left behind by markdown strip.
     text = _re.sub(r"\(\s*\)", "", text)
     text = _re.sub(r"\[\s*\]", "", text)
