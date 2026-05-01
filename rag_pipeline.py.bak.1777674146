@@ -184,13 +184,6 @@ _OPINION_INSTRUCTION = (
     "Give direct specific answers. Never hedge with phrases like 'however this can vary', 'it depends on the person', 'some people may', 'its important to note'. If you have an answer give it. If you dont know say so. Do not pad responses with obvious qualifiers."
 )
 
-_COMMUNITY_INSTRUCTION = (
-    "Some of the sources below are community forums or user groups. "
-    "When referencing these, recommend the user connect with the community "
-    "directly for more detailed help, rather than just summarizing the content."
-)
-
-
 def augment_prompt_in_place(full_prompt, results):
     """Inject RAG context into an existing Mixtral prompt without re-wrapping.
 
@@ -202,13 +195,7 @@ def augment_prompt_in_place(full_prompt, results):
 
     user_msg = extract_user_message(full_prompt)
     mode = classify_query(user_msg)
-    instruction = _OPINION_INSTRUCTION if mode == "opinion" else _FACTUAL_INSTRUCTION
-    # If any retrieved source is a community/forum site, append the
-    # community instruction so the model recommends connecting with
-    # the community directly rather than just summarizing posts.
-    if any(rag_search.is_community_domain(r.get("url", "")) for r in results):
-        instruction = instruction + " " + _COMMUNITY_INSTRUCTION
-    instruction = instruction + "\n\n"
+    instruction = (_OPINION_INSTRUCTION if mode == "opinion" else _FACTUAL_INSTRUCTION) + "\n\n"
 
     # Find the last [INST] and inject context after it
     last_inst = full_prompt.rfind("[INST]")

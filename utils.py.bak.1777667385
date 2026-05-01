@@ -59,7 +59,7 @@ _FILLER_PATTERNS = [
     # right; explicit `\b` is added on patterns whose final captured word could
     # otherwise be a prefix of a longer word ("person" vs "personal").
     _re.compile(r"\bHowever,?\s+it'?s\s+(also\s+)?important\s+to\s+note\s+that\s+", _re.IGNORECASE),
-    _re.compile(r"\b(?:[Ii]t'?s|[Ii]t\s+is)\s+(?:also\s+)?important\s+to\s+notes?\b\s*(?:that\s+)?", _re.IGNORECASE),
+    _re.compile(r"\b(?:[Ii]t'?s|[Ii]t\s+is)\s+(also\s+)?important\s+to\s+note\s+(that\s+)?", _re.IGNORECASE),
     _re.compile(r"\b(?:[Ii]t'?s|[Ii]t\s+is)\s+(also\s+)?worth\s+(mentioning|noting)\s+(that\s+)?", _re.IGNORECASE),
     _re.compile(r"\b(This|That|Consumption|Amounts?|Numbers?|Figures?|Results?|Values?)\s+can\s+vary\s+widely\b[^.]*\.?", _re.IGNORECASE),
     _re.compile(r"\bhowever,?\s+this\s+can\s+vary\b[^.]*\.?", _re.IGNORECASE),
