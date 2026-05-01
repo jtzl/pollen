@@ -423,17 +423,8 @@ function insertPrompt(text) {
 
 // ==================== Error Handling ====================
 
-function showError(msg, severity) {
+function showError(msg) {
   errorTextEl.textContent = msg;
-  // Toggle banner palette: amber for transient/warning conditions
-  // (e.g. cluster restarting), red for hard errors. Class names
-  // are listed literally so Tailwind's CDN JIT picks them up.
-  var amberCls = ['bg-amber-500/10', 'border-amber-500/20', 'text-amber-300'];
-  var redCls   = ['bg-red-500/10', 'border-red-500/20', 'text-red-300'];
-  var add = (severity === 'warning') ? amberCls : redCls;
-  var rem = (severity === 'warning') ? redCls : amberCls;
-  for (var i = 0; i < rem.length; i++) errorBanner.classList.remove(rem[i]);
-  for (var i = 0; i < add.length; i++) errorBanner.classList.add(add[i]);
   errorBanner.classList.remove('hidden');
 }
 function hideError() { errorBanner.classList.add('hidden'); }
@@ -622,11 +613,7 @@ function receiveReplica(prompt) {
           return;
         }
       }
-      if (response.code === 'cluster_unavailable' || errMsg.indexOf('MissingBlocksError') >= 0) {
-        // Cluster is down or no node is serving the needed blocks.
-        // Friendly amber message — usually transient, comes back in a few minutes.
-        showError('Our AI cluster is currently restarting. This usually takes a few minutes. Please try again shortly.', 'warning');
-      } else if (errMsg.indexOf('out of capacity') >= 0 || errMsg.indexOf('Too many concurrent') >= 0) {
+      if (errMsg.indexOf('out of capacity') >= 0 || errMsg.indexOf('Too many concurrent') >= 0) {
         showError('Server is at capacity. Please try again later.');
       } else {
         showError('Generation error. Please try again.');

@@ -4,7 +4,6 @@ from traceback import format_exc
 
 import flask_sock
 import hivemind
-from petals.client.routing.sequence_manager import MissingBlocksError
 from flask import request as http_request
 
 import config
@@ -171,13 +170,6 @@ def ws_api_generate(ws):
 
     except flask_sock.ConnectionClosed:
         pass
-    except MissingBlocksError:
-        # Cluster has no node currently serving the requested blocks.
-        # Treat as a transient infrastructure outage so the frontend
-        # can show a friendly "cluster restarting" message instead of
-        # a generic generation error.
-        logger.warning("ws.generate cluster_unavailable:", exc_info=True)
-        ws.send(json.dumps({"ok": False, "code": "cluster_unavailable", "traceback": format_exc()}))
     except Exception:
         logger.warning("ws.generate failed:", exc_info=True)
         ws.send(json.dumps({"ok": False, "traceback": format_exc()}))
