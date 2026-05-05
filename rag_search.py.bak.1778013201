@@ -464,58 +464,6 @@ def _score_paragraph(paragraph, query_terms):
     return sum(lower.count(t) for t in query_terms)
 
 
-
-_TITLE_TAG_RE = _re.compile(r"<title[^>]*>(.*?)</title>", _re.IGNORECASE | _re.DOTALL)
-_OG_TITLE_RE_A = _re.compile(
-    r"""<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["']""",
-    _re.IGNORECASE,
-)
-_OG_TITLE_RE_B = _re.compile(
-    r"""<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']""",
-    _re.IGNORECASE,
-)
-
-
-def _extract_page_title(html_text):
-    """Best-effort page title: og:title -> <title> -> ''. Single-line, trimmed."""
-    if not html_text:
-        return ""
-    t = ""
-    for rx in (_OG_TITLE_RE_A, _OG_TITLE_RE_B):
-        m = rx.search(html_text)
-        if m:
-            t = m.group(1)
-            break
-    if not t:
-        m = _TITLE_TAG_RE.search(html_text)
-        if m:
-            t = m.group(1)
-    if not t:
-        return ""
-    t = _html.unescape(t)
-    t = _re.sub(r"\s+", " ", t).strip()
-    return t[:200]
-
-
-def _clean_search_title(title):
-    """DDG occasionally returns multiple search-result titles concatenated into one
-    string (e.g. 'Title oneTitle twoTitle three...'). Cut to the first apparent
-    title using ellipsis separators or missing-space camelCase boundaries."""
-    if not title:
-        return ""
-    t = _re.sub(r"\s+", " ", title).strip()
-    for sep in (" ... ", "...", "…"):
-        if sep in t:
-            head = t.split(sep, 1)[0].rstrip()
-            if len(head) >= 8:
-                t = head
-                break
-    m = _re.search(r"([a-z!?.])([A-Z][a-z]{2,})", t)
-    if m and m.start() >= 20 and (len(t) - m.start()) >= 25:
-        t = t[:m.start() + 1].rstrip()
-    return t[:200]
-
-
 def _fetch_page_text(url, query, max_chars=None, timeout=None):
     """Fetch URL, extract up to max_chars of query-relevant paragraphs. Returns '' on failure."""
     import requests
@@ -525,7 +473,7 @@ def _fetch_page_text(url, query, max_chars=None, timeout=None):
         timeout = RAG_FETCH_TIMEOUT
     if _is_skip_fetch_host(url):
         log.debug("RAG fetch skipped (blocklisted host): %s", url)
-        return ("", "")
+        return ""
     try:
         resp = requests.get(
             url,
@@ -536,7 +484,7 @@ def _fetch_page_text(url, query, max_chars=None, timeout=None):
         )
         ctype = resp.headers.get("Content-Type", "")
         if "html" not in ctype.lower() and "xml" not in ctype.lower() and ctype:
-            return ("", "")
+            return ""
         # Read at most ~2 MB to avoid huge pages
         raw = resp.raw.read(3_000_000, decode_content=True)
         try:
@@ -545,7 +493,7 @@ def _fetch_page_text(url, query, max_chars=None, timeout=None):
             text = raw.decode("utf-8", errors="replace")
     except Exception as e:
         log.debug("RAG fetch failed %s: %s", url, e)
-        return ("", "")
+        return ""
 
     # Bail early if the page is a captcha/anti-bot interstitial. We scan a
     # generous prefix of the HTML-stripped-ish text so short wall pages match
@@ -553,11 +501,11 @@ def _fetch_page_text(url, query, max_chars=None, timeout=None):
     _probe = _re.sub(r"(?is)<script\b.*?</script>|<style\b.*?</style>|<[^>]+>", " ", text[:16000])
     if _BOT_DETECTION_RE.search(_probe):
         log.debug("RAG fetch discarded (bot-detection page): %s", url)
-        return ("", "")
+        return ""
 
     paragraphs = _html_to_paragraphs(text)
     if not paragraphs:
-        return ("", "")
+        return ""
 
     query_terms = [t for t in _re.findall(r"[A-Za-z0-9]{3,}", (query or "").lower()) if t not in {"the", "and", "what", "who", "why", "how", "when", "where", "does", "this", "that", "with", "from", "for", "about", "are", "was", "were", "has", "have"}]
 
@@ -589,8 +537,9 @@ def _fetch_page_text(url, query, max_chars=None, timeout=None):
     # drop the enrichment so the caller falls back to the DDG snippet.
     if _BOT_DETECTION_RE.search(out):
         log.debug("RAG fetch discarded (bot-detection in output): %s", url)
-        return ("", "")
-    return out, _extract_page_title(text)
+        return ""
+    return out
+
 
 def _enrich_results(results, query):
     """Fetch each result URL in parallel and replace/augment snippet with richer text."""
@@ -610,15 +559,9 @@ def _enrich_results(results, query):
                 except Exception as e:
                     log.debug("RAG fetch future error idx=%d: %s", i, e)
                     continue
-                if isinstance(extracted, tuple):
-                    page_text, page_title = extracted
-                else:
-                    page_text, page_title = (extracted or ""), ""
-                if page_text:
-                    results[i]["snippet"] = page_text
-                if page_title:
-                    results[i]["title"] = page_title
-                # else: keep original DDG snippet/title as fallback
+                if extracted:
+                    results[i]["snippet"] = extracted
+                # else: keep original DDG snippet as fallback
     except Exception as e:
         log.warning("RAG enrichment partial failure: %s", e)
     return results
@@ -760,7 +703,7 @@ def search(query, max_results=None):
                             continue
                         seen_urls.add(url)
                         results.append({
-                            "title": _clean_search_title(r.get("title", "")),
+                            "title": r.get("title", ""),
                             "url": url,
                             "snippet": r.get("body", ""),
                         })
@@ -795,7 +738,7 @@ def search(query, max_results=None):
                                 continue
                             seen_urls.add(url)
                             results.append({
-                                "title": _clean_search_title(r.get("title", "")),
+                                "title": r.get("title", ""),
                                 "url": url,
                                 "snippet": r.get("body", ""),
                             })

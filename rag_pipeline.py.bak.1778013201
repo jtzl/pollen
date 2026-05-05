@@ -191,43 +191,6 @@ _COMMUNITY_INSTRUCTION = (
 )
 
 
-
-_LIST_INSTRUCTION = (
-    "When the user asks for a list of alternatives, recommendations, or examples, "
-    "provide specific named examples with brief descriptions rather than explaining "
-    "the general concept."
-)
-
-_LIST_QUERY_RE = re.compile(
-    r"\b("
-    r"best\s+\w+|"
-    r"top\s+\d*\s*\w+|"
-    r"alternatives?\s+to\b|"
-    r"\w+\s+alternatives?\b|"
-    r"recommendations?\b|"
-    r"recommend\s+(?:me\s+)?\w+|"
-    r"examples?\s+of\b|"
-    r"list\s+(?:of|some)\b|"
-    r"what\s+are\s+(?:some|the\s+best)\b|"
-    r"(?:any|some|good)\s+\w+\s+(?:for|to)\b"
-    r")",
-    re.IGNORECASE,
-)
-
-
-def _is_list_query(text):
-    return bool(text and _LIST_QUERY_RE.search(text))
-
-
-def _extend_instruction(instruction, results, user_msg):
-    """Append optional instruction snippets based on result domains and query shape."""
-    if any(rag_search.is_community_domain(r.get("url", "")) for r in (results or [])):
-        instruction = instruction + " " + _COMMUNITY_INSTRUCTION
-    if _is_list_query(user_msg):
-        instruction = instruction + " " + _LIST_INSTRUCTION
-    return instruction
-
-
 def augment_prompt_in_place(full_prompt, results):
     """Inject RAG context into an existing Mixtral prompt without re-wrapping.
 
@@ -240,7 +203,11 @@ def augment_prompt_in_place(full_prompt, results):
     user_msg = extract_user_message(full_prompt)
     mode = classify_query(user_msg)
     instruction = _OPINION_INSTRUCTION if mode == "opinion" else _FACTUAL_INSTRUCTION
-    instruction = _extend_instruction(instruction, results, user_msg)
+    # If any retrieved source is a community/forum site, append the
+    # community instruction so the model recommends connecting with
+    # the community directly rather than just summarizing posts.
+    if any(rag_search.is_community_domain(r.get("url", "")) for r in results):
+        instruction = instruction + " " + _COMMUNITY_INSTRUCTION
     instruction = instruction + "\n\n"
 
     # Find the last [INST] and inject context after it
@@ -335,7 +302,6 @@ def build_augmented_prompt(user_message, system_prefix="", search_results=None):
     if context_block:
         mode = classify_query(user_message)
         instruction = _OPINION_INSTRUCTION if mode == "opinion" else _FACTUAL_INSTRUCTION
-        instruction = _extend_instruction(instruction, results, user_message)
         prompt = (
             f"{system_prefix}"
             f"[INST] {instruction}\n\n"
