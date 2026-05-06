@@ -858,6 +858,7 @@ function renderNetworkStatus(data) {
 
     var statusDotColor = isUp ? 'node-status-dot up' : 'node-status-dot down';
     var statusBadge = isUp ? '' : '<span class="node-offline-badge ml-2">OFFLINE</span>';
+    var hubBadge = n.is_hub ? '<span class="node-hub-badge ml-2">Hub - Chat UI</span>' : '';
 
     var vramHtml = '';
     if (n.vram_used_mb !== null && n.vram_total_mb !== null) {
@@ -885,6 +886,7 @@ function renderNetworkStatus(data) {
           '<span class="' + statusDotColor + '">&nbsp;</span>' +
           '<span class="text-sm font-medium text-gray-200">' + escapeHtml(n.name) + '</span>' +
           statusBadge +
+          hubBadge +
         '</div>' +
         '<span class="text-[10px] text-gray-500 font-mono">' + escapeHtml(n.peer_id) + '</span>' +
       '</div>' +

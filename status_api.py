@@ -25,16 +25,19 @@ _curated_sources_cache = {"data": None, "expires_at": 0.0}
 NODE_MAP = {
     "WUG9d9G7tHHQ": {
         "name": "EC2 (A10G)",
+        "is_hub": True,
         "vram_cmd": ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
     },
     "4AMqExmwB3JL": {
         "name": "Physical Node (RTX 3090)",
+        "is_hub": False,
         "vram_cmd": ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
                       "irfan@98.61.139.87",
                       "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits"],
     },
     "QZPFxNcv8eDh": {
         "name": "Zlamabama (RTX 4090)",
+        "is_hub": False,
         "vram_cmd": ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
                       "-p", "31332", "irfan@localhost",
                       "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits"],
@@ -145,6 +148,7 @@ def api_status():
                 "throughput": peer["throughput"] if is_up else 0,
                 "vram_used_mb": vram_used,
                 "vram_total_mb": vram_total,
+                "is_hub": bool(node_info.get("is_hub", False)),
             }
             nodes.append(node)
 
@@ -161,6 +165,7 @@ def api_status():
                     "throughput": peer["throughput"],
                     "vram_used_mb": None,
                     "vram_total_mb": None,
+                    "is_hub": False,
                 })
 
         result = {

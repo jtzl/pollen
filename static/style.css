@@ -611,3 +611,17 @@
   /* Network status grid: stack to single column on very small screens */
   #ns-content .grid.grid-cols-2 { grid-template-columns: 1fr; gap: 0.5rem; }
 }
+
+.node-hub-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.18);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: 4px;
+  line-height: 1.4;
+}
