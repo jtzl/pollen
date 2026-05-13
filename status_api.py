@@ -28,7 +28,7 @@ NODE_MAP = {
         "is_hub": True,
         "vram_cmd": ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
     },
-    "4AMqExmwB3JL": {
+    "maM3HmC8hDZj": {
         "name": "Physical Node (RTX 3090)",
         "is_hub": False,
         "vram_cmd": ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",

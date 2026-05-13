@@ -265,6 +265,33 @@ def _domain_of(url):
     except Exception:
         return ""
 
+# Sources to drop entirely from RAG results before they reach Mixtral.
+# Matches exact domain and any subdomain (e.g. old.reddit.com, www.reddit.com).
+BLOCKED_SOURCES = frozenset({
+    "reddit.com",
+    "quora.com",
+    "answers.com",
+})
+
+
+def is_blocked_domain(domain_or_url):
+    """True when the URL/domain matches a BLOCKED_SOURCES entry or any subdomain of one."""
+    if not domain_or_url:
+        return False
+    s = str(domain_or_url).strip().lower()
+    if "://" in s or s.startswith("//"):
+        d = _domain_of(s)
+    else:
+        d = s.lstrip(".")
+        if d.startswith("www."):
+            d = d[4:]
+    if not d:
+        return False
+    for b in BLOCKED_SOURCES:
+        if d == b or d.endswith("." + b):
+            return True
+    return False
+
 
 def _source_rank(url):
     """Lower rank = appears earlier.
@@ -758,6 +785,10 @@ def search(query, max_results=None):
                         url = r.get("href", "")
                         if not url or url in seen_urls:
                             continue
+                        if is_blocked_domain(url):
+                            log.info("RAG blocked domain: %s", url)
+                            seen_urls.add(url)
+                            continue
                         seen_urls.add(url)
                         results.append({
                             "title": _clean_search_title(r.get("title", "")),
@@ -792,6 +823,10 @@ def search(query, max_results=None):
                         for r in fb_raw:
                             url = r.get("href", "")
                             if not url or url in seen_urls:
+                                continue
+                            if is_blocked_domain(url):
+                                log.info("RAG blocked domain (fallback): %s", url)
+                                seen_urls.add(url)
                                 continue
                             seen_urls.add(url)
                             results.append({

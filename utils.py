@@ -370,6 +370,18 @@ def _trim_to_last_sentence(text):
     return text[: matches[-1].end()].rstrip()
 
 
+def _snap_to_word_boundary(text, idx):
+    """Walk back from idx to the last whitespace so we never truncate inside a word."""
+    if idx <= 0 or idx >= len(text):
+        return idx
+    if text[idx - 1].isspace() or text[idx].isspace():
+        return idx
+    j = idx
+    while j > 0 and not text[j - 1].isspace():
+        j -= 1
+    return j if j > 0 else idx
+
+
 def _deduplicate_response(text):
     """Detect repeating paragraphs or list restarts and truncate."""
     if not text or len(text) < 200:
@@ -383,10 +395,11 @@ def _deduplicate_response(text):
         cutoff = opener_ones[1].start()
         # Only treat as a restart if there was substantive content before it
         if cutoff > 120:
+            cutoff = _snap_to_word_boundary(text, cutoff)
             return _trim_to_last_sentence(text[:cutoff])
 
     # 2) Paragraph-level duplication: if a paragraph (>= ~10 words) has a
-    #    normalised 60-char prefix that already appears earlier in the
+    #    normalised 100-char prefix that already appears earlier in the
     #    normalised text, treat as a loop and cut at that paragraph.
     paragraphs = text.split("\n\n")
     if len(paragraphs) >= 2:
@@ -396,10 +409,11 @@ def _deduplicate_response(text):
             norm = _normalize_for_compare(para)
             word_count = len(_WORD_RE.findall(para))
             if word_count >= 10:
-                key = norm[:60]
+                key = norm[:100]
                 if key and key in running_norm:
                     cut = offset
                     if cut > 120:
+                        cut = _snap_to_word_boundary(text, cut)
                         return _trim_to_last_sentence(text[:cut])
             running_norm += " " + norm
             offset += len(para) + 2  # +2 for the "\n\n" separator
@@ -416,11 +430,12 @@ def _deduplicate_response(text):
             if len(body) < 40:
                 bodies.append(body)
                 continue
-            key = body[:60]
+            key = body[:100]
             for prev in bodies:
                 if key and key in prev:
                     cut = m.start()
                     if cut > 120:
+                        cut = _snap_to_word_boundary(text, cut)
                         return _trim_to_last_sentence(text[:cut])
             bodies.append(body)
 

@@ -195,7 +195,9 @@ _COMMUNITY_INSTRUCTION = (
 _LIST_INSTRUCTION = (
     "When the user asks for a list of alternatives, recommendations, or examples, "
     "provide specific named examples with brief descriptions rather than explaining "
-    "the general concept."
+    "the general concept. If the search results do not contain specific named examples "
+    "that directly match what the user asked for, say so explicitly rather than "
+    "presenting tangentially related items as if they answered the question."
 )
 
 _LIST_QUERY_RE = re.compile(

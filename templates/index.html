@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>{{ app_name }}</title>
+  <title>{{ app_name }} - Organized Ideas</title>
   <link rel="icon" type="image/png" href="./static/logo.svg">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -21,7 +21,7 @@
       }
     }
   </script>
-  <link href="./static/style.css?v=9" rel="stylesheet">
+  <link href="./static/style.css?v=10" rel="stylesheet">
   <!-- Marked.js for Markdown rendering -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -63,7 +63,10 @@
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
         </button>
         <div class="flex items-center gap-2">
-          <span class="text-sm font-medium text-gray-200" id="header-title">{{ app_name }}</span>
+          <div class="flex items-baseline gap-1.5 leading-none">
+            <span class="text-sm font-medium text-gray-200" id="header-title">{{ app_name }}</span>
+            <span class="hidden sm:inline text-[11px] text-gray-500 tracking-wide" title="OI: Organized Ideas">Organized Ideas</span>
+          </div>
           <span class="text-[10px] px-1.5 py-0.5 rounded bg-accent-500/20 text-accent-400 font-medium">{{ model_badge }}</span>
         </div>
       </div>
@@ -455,6 +458,6 @@
     const modelConfigs = {{ model_config_json|safe }};
     const defaultModel = {{ default_model.backend.key|tojson|safe }};
   </script>
-  <script src="./static/chat.js?v=13"></script>
+  <script src="./static/chat.js?v=14"></script>
 </body>
 </html>
