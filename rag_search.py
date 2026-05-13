@@ -30,7 +30,7 @@ CURATED_DOMAINS_URL = os.getenv(
     "CURATED_DOMAINS_URL",
     "https://makeyouraismarter.com/wp-json/pollen/v1/sources/domains",
 )
-CURATED_DOMAINS_TTL = 3600
+CURATED_DOMAINS_TTL = 300
 # Use a shorter TTL on failure so a transient API blip doesn't pin us to the
 # env fallback for a full hour.
 CURATED_DOMAINS_FAILURE_TTL = 300
