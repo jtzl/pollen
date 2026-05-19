@@ -993,7 +993,7 @@ function fetchSources() {
         document.getElementById('src-empty').classList.remove('hidden');
         return;
       }
-      renderSources(sources);
+      renderSources(data);
       document.getElementById('src-content').classList.remove('hidden');
     })
     .catch(function(err) {
@@ -1003,51 +1003,96 @@ function fetchSources() {
     });
 }
 
-function renderSources(sources) {
+function buildSourceCard(s) {
+  var domain = s.domain || s.url || '';
+  var title = s.title || domain;
+  var up = parseInt(s.upvotes, 10) || 0;
+  var down = parseInt(s.downvotes, 10) || 0;
+  var net = (s.net_score !== undefined && s.net_score !== null)
+    ? parseInt(s.net_score, 10)
+    : (up - down);
+  var netClass = net > 0 ? 'src-net positive' : (net < 0 ? 'src-net negative' : 'src-net neutral');
+  var netLabel = (net > 0 ? '+' : '') + net;
+  var safeTitle = escapeHtml(title);
+  var safeDomain = escapeHtml(domain);
+  var safeUrl = escapeHtml(s.url || ('https://' + domain));
+  var card = document.createElement('div');
+  card.className = 'source-card';
+  card.innerHTML =
+    '<div class="src-main">' +
+      '<a href="' + safeUrl + '" target="_blank" rel="noopener" class="src-title">' + safeTitle + '</a>' +
+      '<div class="src-meta">' +
+        '<span class="src-domain">' + safeDomain + '</span>' +
+      '</div>' +
+    '</div>' +
+    '<div class="src-votes">' +
+      '<span class="src-vote up" title="Upvotes">' +
+        '<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg>' +
+        up +
+      '</span>' +
+      '<span class="src-vote down" title="Downvotes">' +
+        '<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>' +
+        down +
+      '</span>' +
+      '<span class="' + netClass + '" title="Net score">' + netLabel + '</span>' +
+    '</div>';
+  return card;
+}
+
+function renderCategoryGroup(parentEl, cat) {
+  var section = document.createElement('div');
+  section.className = 'src-group';
+  var header = document.createElement('div');
+  header.className = 'src-group-header';
+  header.innerHTML =
+    '<span class="src-group-name">' + escapeHtml(cat.name || 'Uncategorized') + '</span>' +
+    '<span class="src-group-count">' + ((cat.count != null) ? cat.count : 0) + '</span>';
+  section.appendChild(header);
+  var directs = (cat.sources || []);
+  for (var i = 0; i < directs.length; i++) {
+    section.appendChild(buildSourceCard(directs[i]));
+  }
+  var subs = (cat.subcategories || []);
+  for (var s = 0; s < subs.length; s++) {
+    var sub = subs[s];
+    var subSection = document.createElement('div');
+    subSection.className = 'src-subgroup';
+    var subHeader = document.createElement('div');
+    subHeader.className = 'src-subgroup-header';
+    subHeader.innerHTML =
+      '<span class="src-subgroup-name">' + escapeHtml(sub.name || '') + '</span>' +
+      '<span class="src-subgroup-count">' + ((sub.count != null) ? sub.count : 0) + '</span>';
+    subSection.appendChild(subHeader);
+    var subSources = (sub.sources || []);
+    for (var k = 0; k < subSources.length; k++) {
+      subSection.appendChild(buildSourceCard(subSources[k]));
+    }
+    section.appendChild(subSection);
+  }
+  parentEl.appendChild(section);
+}
+
+function renderSources(data) {
   var listEl = document.getElementById('src-list');
   listEl.innerHTML = '';
-  for (var i = 0; i < sources.length; i++) {
-    var s = sources[i];
-    var domain = s.domain || s.url || '';
-    var title = s.title || domain;
-    var category = s.category || '';
-    var up = parseInt(s.upvotes, 10) || 0;
-    var down = parseInt(s.downvotes, 10) || 0;
-    var net = (s.net_score !== undefined && s.net_score !== null)
-      ? parseInt(s.net_score, 10)
-      : (up - down);
-
-    var card = document.createElement('div');
-    card.className = 'source-card';
-
-    var netClass = net > 0 ? 'src-net positive' : (net < 0 ? 'src-net negative' : 'src-net neutral');
-    var netLabel = (net > 0 ? '+' : '') + net;
-
-    var safeTitle = escapeHtml(title);
-    var safeDomain = escapeHtml(domain);
-    var safeCategory = escapeHtml(category);
-    var safeUrl = escapeHtml(s.url || ('https://' + domain));
-
-    card.innerHTML =
-      '<div class="src-main">' +
-        '<a href="' + safeUrl + '" target="_blank" rel="noopener" class="src-title">' + safeTitle + '</a>' +
-        '<div class="src-meta">' +
-          '<span class="src-domain">' + safeDomain + '</span>' +
-          (category ? '<span class="src-cat">' + safeCategory + '</span>' : '') +
-        '</div>' +
-      '</div>' +
-      '<div class="src-votes">' +
-        '<span class="src-vote up" title="Upvotes">' +
-          '<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg>' +
-          up +
-        '</span>' +
-        '<span class="src-vote down" title="Downvotes">' +
-          '<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>' +
-          down +
-        '</span>' +
-        '<span class="' + netClass + '" title="Net score">' + netLabel + '</span>' +
-      '</div>';
-    listEl.appendChild(card);
+  // Accept either a full payload {sources, categories} or a bare array (legacy).
+  var sources, categories;
+  if (Array.isArray(data)) {
+    sources = data;
+    categories = null;
+  } else {
+    sources = (data && data.sources) || [];
+    categories = (data && Array.isArray(data.categories)) ? data.categories : null;
+  }
+  if (categories && categories.length > 0) {
+    for (var i = 0; i < categories.length; i++) {
+      renderCategoryGroup(listEl, categories[i]);
+    }
+  } else {
+    // Fallback: flat list (if proxy is older or returns no categories).
+    for (var j = 0; j < sources.length; j++) {
+      listEl.appendChild(buildSourceCard(sources[j]));
+    }
   }
 }
 

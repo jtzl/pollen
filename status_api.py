@@ -17,9 +17,69 @@ CACHE_TTL = 10
 # browser never makes a cross-origin request (the WP endpoint doesn't send
 # Access-Control-Allow-Origin). Cached for 5 minutes since votes/categories
 # change slowly and the modal can be opened repeatedly.
-CURATED_SOURCES_URL = "https://makeyouraismarter.com/wp-json/pollen/v1/sources?limit=50"
+CURATED_SOURCES_URL = "https://makeyouraismarter.com/wp-json/pollen/v1/sources?limit=100"
+CURATED_CATEGORIES_URL = "https://makeyouraismarter.com/wp-json/pollen/v1/categories"
 CURATED_SOURCES_TTL = 300
 _curated_sources_cache = {"data": None, "expires_at": 0.0}
+
+
+def _split_category(raw):
+    """Split a category string into (parent, sub).
+
+    Accepts either a flat slug ("science") or a hierarchical form using one
+    of "/", ">" or ":" as the separator ("science/biology", "Science > Biology").
+    Returns lowercased, stripped (parent, sub) — sub is "" for flat input.
+    """
+    if not raw:
+        return ("", "")
+    s = str(raw).strip()
+    if not s:
+        return ("", "")
+    for sep in ("/", ">", ":"):
+        if sep in s:
+            parent, _, sub = s.partition(sep)
+            return (parent.strip().lower(), sub.strip().lower())
+    return (s.lower(), "")
+
+
+def _build_categories(sources):
+    """Group flat-source list into [{name, count, sources, subcategories}, ...].
+
+    Sources without a subcategory live directly in the parent\'s `sources`.
+    Sources with a slash-style category (e.g. "science/biology") nest under
+    `subcategories`. Parents and subcategories are sorted alphabetically.
+    """
+    by_parent = {}
+    for s in sources or []:
+        parent, sub = _split_category(s.get("category", ""))
+        if not parent:
+            parent = "uncategorized"
+        bucket = by_parent.setdefault(parent, {"sources": [], "subs": {}})
+        if sub:
+            sub_bucket = bucket["subs"].setdefault(sub, [])
+            sub_bucket.append(s)
+        else:
+            bucket["sources"].append(s)
+    result = []
+    for parent in sorted(by_parent.keys()):
+        bucket = by_parent[parent]
+        subs = []
+        for sub_name in sorted(bucket["subs"].keys()):
+            sub_sources = bucket["subs"][sub_name]
+            subs.append({
+                "name": sub_name,
+                "count": len(sub_sources),
+                "sources": sub_sources,
+            })
+        total = len(bucket["sources"]) + sum(sc["count"] for sc in subs)
+        result.append({
+            "name": parent,
+            "count": total,
+            "sources": bucket["sources"],
+            "subcategories": subs,
+        })
+    return result
+
 
 # Map truncated peer IDs to friendly node info
 NODE_MAP = {
@@ -211,12 +271,37 @@ def api_curated_sources():
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
 
-        _curated_sources_cache["data"] = data
+        sources = data.get("sources", []) if isinstance(data, dict) else []
+
+        # Best-effort fetch of the canonical category list. Used only to expose
+        # category counts to the UI; grouping below still works without it.
+        category_meta = []
+        try:
+            cat_req = urllib.request.Request(
+                CURATED_CATEGORIES_URL,
+                headers={"User-Agent": "Pollen-RAG/1.0", "Accept": "application/json"},
+            )
+            with urllib.request.urlopen(cat_req, timeout=5) as cat_resp:
+                category_meta = json.loads(cat_resp.read().decode("utf-8", errors="replace"))
+            if not isinstance(category_meta, list):
+                category_meta = []
+        except Exception as cat_err:
+            logger.info("Curated categories fetch skipped: %s", cat_err)
+
+        if isinstance(data, dict):
+            result = dict(data)
+        else:
+            result = {"sources": sources, "count": len(sources)}
+        result["categories"] = _build_categories(sources)
+        if category_meta:
+            result["category_meta"] = category_meta
+
+        _curated_sources_cache["data"] = result
         _curated_sources_cache["expires_at"] = now + CURATED_SOURCES_TTL
-        return jsonify(data)
+        return jsonify(result)
     except Exception as e:
         logger.warning("Curated sources proxy fetch failed: %s", e)
         # Serve stale cache if available — better than a hard error in the UI.
         if cached is not None:
             return jsonify(cached)
-        return jsonify({"ok": False, "error": str(e), "sources": [], "count": 0}), 502
+        return jsonify({"ok": False, "error": str(e), "sources": [], "count": 0, "categories": []}), 502
