@@ -23,7 +23,14 @@ RAG_FETCH_CHARS = int(os.getenv("RAG_FETCH_CHARS", "800"))  # max chars extracte
 RAG_FETCH_TIMEOUT = float(os.getenv("RAG_FETCH_TIMEOUT", "5"))  # seconds per page
 RAG_FETCH_WORKERS = int(os.getenv("RAG_FETCH_WORKERS", "6"))
 PREFERRED_SOURCES = tuple(d.strip().lower() for d in os.getenv("PREFERRED_SOURCES", "").split(",") if d.strip())
-DEPRIORITIZED_SOURCES = tuple(d.strip().lower() for d in os.getenv("DEPRIORITIZED_SOURCES", "").split(",") if d.strip())
+# Built-in deprioritization list: ranked below curated/preferred but NOT blocked.
+# Matches the bare domain and any subdomain via the existing endswith check in _source_rank.
+_DEPRIORITIZED_DEFAULTS = (
+    "wikipedia.org",
+)
+_DEPRIORITIZED_ENV = tuple(d.strip().lower() for d in os.getenv("DEPRIORITIZED_SOURCES", "").split(",") if d.strip())
+# Merge defaults + env, de-duped, preserving order (defaults first).
+DEPRIORITIZED_SOURCES = tuple(dict.fromkeys(_DEPRIORITIZED_DEFAULTS + _DEPRIORITIZED_ENV))
 
 # WordPress source curation: domains marked as authoritative get top ranking.
 CURATED_DOMAINS_URL = os.getenv(
@@ -846,9 +853,11 @@ def search(query, max_results=None):
         # (1) score each result by how many query keywords appear in title+snippet
         # (title matches weighted 2x);
         # (2) drop results with score == 0 (off-topic noise);
-        # (3) sort by (-relevance, source_rank, original_index) so the most
-        #     on-topic results come first, preferred domains break ties, and
-        #     insertion order is preserved as the last tiebreaker.
+        # (3) sort by (source_rank, -relevance, original_index): source rank is
+        #     PRIMARY (curated < preferred < neutral < deprioritized), so a
+        #     deprioritized domain always ranks below a non-deprioritized one
+        #     even when its relevance score is higher. Within the same rank
+        #     tier we fall back to relevance, then insertion order.
         keywords = _extract_keywords(query)
         scored = []
         dropped = 0
@@ -860,7 +869,7 @@ def search(query, max_results=None):
                 continue
             sr = _source_rank(r.get("url", ""))
             scored.append((rs, sr, i, r))
-        scored.sort(key=lambda t: (-t[0], t[1], t[2]))
+        scored.sort(key=lambda t: (t[1], -t[0], t[2]))
         results = [t[3] for t in scored]
 
         log.info("RAG search complete: query=%r, %d relevant results (%d dropped) in %.1fs",
