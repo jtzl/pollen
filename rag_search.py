@@ -367,7 +367,7 @@ def _relevance_score(keywords, title, snippet):
     return score
 
 
-_FETCH_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+_FETCH_UA = "Pollen-RAG/1.0 (+https://makeyouraismarter.com)"
 
 import html as _html
 import re as _re
