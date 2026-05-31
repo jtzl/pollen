@@ -36,3 +36,5 @@ static/generated/
 # Test output files
 rag_test_*.txt
 static/test_results.txt
+*.bak.*
+.env.*
