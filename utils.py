@@ -470,6 +470,64 @@ def _cap_citation_numbers(text, max_sources):
     return _CITATION_NUM_RE.sub(_fix, text)
 
 
+_HEDGE_MARKERS = (
+    "not possible to provide",
+    "no specific answer",
+    "no exact answer",
+    "difficult to provide an exact",
+    "cannot provide an exact",
+    "depends on various factors",
+)
+
+# Broad hedge detector: paraphrase family of "depends on ... factors",
+# "no clear/specific/exact answer", "(not possible/difficult) to provide", etc.
+_HEDGE_RE = _re.compile(
+    r"depends on \w+ (?:factors|variables|conditions)|no (?:clear|specific|exact|single|definitive|one|precise) answer|(?:not possible|no way|impossible|difficult|hard) to (?:provide|give|determine|say|estimate|calculate)|there is no (?:single|one|exact|specific|clear) (?:answer|number)|varies (?:greatly|widely|depending|considerably)",
+    _re.IGNORECASE,
+)
+
+# Leading "However,"/"That said,"/"In any case," optionally followed by an
+# "I can provide/offer/share/give ..." bridge clause up to its first . or :
+_HEDGE_HOWEVER_RE = _re.compile(
+    r"^(?:however|that said|in any case|in either case),?\s*(?:i can (?:provide|offer|share|give)[^.:]*[.:])?\s*",
+    _re.IGNORECASE,
+)
+
+
+def _strip_hedge_preamble(text):
+    """Drop a leading hedge sentence (e.g. "It is not possible to provide an
+    exact number ... depends on various factors.") plus any "However, I can
+    provide ..." bridge that follows it, so the answer leads with substance.
+    Returns text unchanged when the first sentence is not a hedge."""
+    if not text:
+        return text
+    sentences = _re.split(r"(?<=[.!?])\s+", text.strip())
+    drop = 0
+    for s in sentences[:3]:
+        if _HEDGE_RE.search(s):
+            drop += 1
+        else:
+            break
+    if drop == 0:
+        return text
+    rest = " ".join(sentences[drop:]).strip()
+    rest = _HEDGE_HOWEVER_RE.sub("", rest, count=1).strip()
+    if not rest:
+        return text
+    return rest[0].upper() + rest[1:]
+
+
+_PARTIAL_CITATION_RE = _re.compile(r"\[\s*\d{0,3}\s*$")
+
+
+def safe_emit_len_for_citations(text):
+    """Return the index where a trailing unclosed citation bracket begins, else len(text). Used in streaming to hold back a partial citation until it is complete and can be capped."""
+    if not text:
+        return 0
+    m = _PARTIAL_CITATION_RE.search(text)
+    return m.start() if m else len(text)
+
+
 # ============================================================
 # String-based fallback for "Based on the search results"-style filler
 # prefixes. The regex pattern in _FILLER_PATTERNS works correctly in
@@ -596,6 +654,7 @@ def strip_filler_phrases(text, max_citations=None, is_final=True):
     if not text:
         return text
     text = _strip_opening_meta_sentence(text)
+    text = _strip_hedge_preamble(text)
     for pat in _FILLER_PATTERNS:
         text = pat.sub("", text)
     text = _strip_fallback_prefix(text)

@@ -7,6 +7,8 @@ import os
 import threading
 import time
 import urllib.request
+import shlex
+import subprocess
 
 from dotenv import load_dotenv
 
@@ -35,7 +37,7 @@ DEPRIORITIZED_SOURCES = tuple(dict.fromkeys(_DEPRIORITIZED_DEFAULTS + _DEPRIORIT
 # WordPress source curation: domains marked as authoritative get top ranking.
 CURATED_DOMAINS_URL = os.getenv(
     "CURATED_DOMAINS_URL",
-    "https://makeyouraismarter.com/wp-json/pollen/v1/sources/domains",
+    "https://organized.info/wp-json/pollen/v1/sources/domains",
 )
 CURATED_DOMAINS_TTL = 300
 # Use a shorter TTL on failure so a transient API blip doesn't pin us to the
@@ -121,7 +123,7 @@ def fetch_curated_domains():
 # rag_pipeline to detect community-style sources and tweak the prompt.
 CURATED_SOURCES_URL = os.getenv(
     "CURATED_SOURCES_URL",
-    "https://makeyouraismarter.com/wp-json/pollen/v1/sources",
+    "https://organized.info/wp-json/pollen/v1/sources",
 )
 
 # Hardcoded fallback for well-known community sites. Always unioned with the
@@ -746,8 +748,114 @@ def _reformulate_query(query):
     return variants[:2]  # capped at 2 for token budget
 
 
+def fetch_wikipedia(query, limit=2):
+    """Fetch the top Wikipedia article intros for `query` via the MediaWiki API.
+
+    Returns a list of result dicts in the SAME shape as search():
+    [{"title": ..., "url": ..., "snippet": ...}, ...]. Any error (network,
+    timeout, bad payload) yields [] so callers can treat it as "no results".
+    """
+    try:
+        import urllib.parse
+
+        api = "https://en.wikipedia.org/w/api.php"
+        ua = {"User-Agent": _FETCH_UA, "Accept": "application/json"}
+
+        # 1) Search for the top matching article titles.
+        search_qs = urllib.parse.urlencode({
+            "action": "query",
+            "list": "search",
+            "srsearch": query,
+            "srlimit": max(1, int(limit)),
+            "format": "json",
+        })
+        req = urllib.request.Request(api + "?" + search_qs, headers=ua)
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            sdata = json.loads(resp.read().decode("utf-8", errors="replace"))
+        hits = (sdata.get("query") or {}).get("search") or []
+        titles = [h["title"] for h in hits if h.get("title")][:int(limit)]
+        if not titles:
+            return []
+
+        # 2) For each title, pull the plaintext intro extract and build the URL.
+        results = []
+        for title in titles:
+            extract_qs = urllib.parse.urlencode({
+                "action": "query",
+                "prop": "extracts",
+                "exintro": 1,
+                "explaintext": 1,
+                "format": "json",
+                "titles": title,
+            })
+            req2 = urllib.request.Request(api + "?" + extract_qs, headers=ua)
+            with urllib.request.urlopen(req2, timeout=6) as resp:
+                edata = json.loads(resp.read().decode("utf-8", errors="replace"))
+            pages = (edata.get("query") or {}).get("pages") or {}
+            extract = ""
+            for page in pages.values():
+                extract = page.get("extract", "") or ""
+                break
+            url = "https://en.wikipedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"))
+            results.append({
+                "title": title,
+                "url": url,
+                "snippet": extract[:RAG_FETCH_CHARS],
+            })
+        return results
+    except Exception as e:
+        log.warning("fetch_wikipedia failed for %r: %s", query, e)
+        return []
+
+
 def is_enabled():
     return RAG_ENABLED
+
+
+def node_search(query, max_results):
+    """Run web search on a residential contributor node via the reverse SSH tunnel.
+
+    The node runs DDGS from a residential IP that search engines do not block
+    (this EC2 datacenter IP gets 403/429). Returns a list of dicts in the ddgs
+    raw shape {"href", "title", "body"} so the existing search() loop consumes
+    them unchanged. Returns [] on any error/timeout/nonzero exit/empty output.
+    """
+    try:
+        remote = "~/pollen-search-env/bin/python3 ~/pollen_search.py " + shlex.quote(query)
+        cmd = [
+            "ssh", "-p", "31333",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=8",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ControlMaster=auto",
+            "-o", "ControlPath=/home/ubuntu/.ssh/cm-%r@%h:%p",
+            "-o", "ControlPersist=60",
+            "irfan@localhost",
+            remote,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+        if proc.returncode != 0:
+            log.warning("RAG node_search ssh exit %d for query=%r: %s",
+                        proc.returncode, query, (proc.stderr or "").strip()[:200])
+            return []
+        data = json.loads(proc.stdout)
+        if not isinstance(data, list):
+            return []
+        out = []
+        for r in data:
+            if not isinstance(r, dict):
+                continue
+            out.append({
+                "href": r.get("url", ""),
+                "title": r.get("title", ""),
+                "body": r.get("snippet", ""),
+            })
+        if max_results:
+            out = out[:max_results]
+        return out
+    except Exception as e:
+        log.warning("RAG node_search failed for query=%r: %s", query, e)
+        return []
 
 
 def search(query, max_results=None):
@@ -770,6 +878,11 @@ def search(query, max_results=None):
         from ddgs import DDGS
 
         source_filter = _build_source_filter()
+        # Strip prompt-wrapper tokens so they don't leak into node search queries.
+        if query:
+            for _tok in ("<s>", "</s>", "[INST]", "[/INST]"):
+                query = query.replace(_tok, " ")
+            query = query.strip()
         variants = _reformulate_query(query)
         per_variant = max(3, -(-max_results // max(1, len(variants))))  # ceil div
         log.info("RAG search starting: query=%r, %d variants=%r, filter=%r, max_results=%d, per_variant=%d",
@@ -781,9 +894,9 @@ def search(query, max_results=None):
         try:
             with DDGS() as ddgs:
                 for v in variants:
-                    fq = v + source_filter
+                    fq = v  # curated site: filter no longer forced onto node query
                     try:
-                        raw = list(ddgs.text(fq, max_results=per_variant, backend="html"))
+                        raw = node_search(fq, per_variant)
                     except Exception as ve:
                         log.warning("RAG DDG variant failed %r: %s", v, ve)
                         continue
@@ -823,7 +936,7 @@ def search(query, max_results=None):
                 with DDGS() as ddgs:
                     for v in variants:
                         try:
-                            fb_raw = list(ddgs.text(v, max_results=per_variant, backend="html"))
+                            fb_raw = node_search(v, per_variant)
                         except Exception as ve:
                             log.warning("RAG fallback variant failed %r: %s", v, ve)
                             continue
@@ -858,6 +971,41 @@ def search(query, max_results=None):
         #     deprioritized domain always ranks below a non-deprioritized one
         #     even when its relevance score is higher. Within the same rank
         #     tier we fall back to relevance, then insertion order.
+        # Directly fetch Wikipedia and merge into the pool. DDG deprioritizes
+        # and often misses Wikipedia; these direct hits are deduped by URL
+        # against the DDG results and exempted from the Wikipedia
+        # deprioritization below so they can surface when DDG returned nothing.
+        wiki_direct_urls = set()
+        try:
+            # Build a clean Wikipedia search term: strip any [INST]/<s> prompt
+            # wrapper, then use extracted keywords (nouns) rather than the full
+            # natural-language question. list=search returns junk for phrasings
+            # like "how long does it take to..." but works on noun terms.
+            _wq = query or ""
+            for _tok in ("<s>", "</s>", "[INST]", "[/INST]"):
+                _wq = _wq.replace(_tok, " ")
+            _wiki_kw = _extract_keywords(_wq)
+            # Drop weak words that pull irrelevant Wikipedia articles (e.g. "long"
+            # -> "Nia Long" on a guitar question). This narrows the Wikipedia
+            # search term ONLY; the relevance-scoring keywords below are unaffected.
+            # Fall back to the full keyword list if dropping empties the term.
+            _WIKI_WEAK = {"long", "take", "many", "much", "get", "make", "does",
+                          "way", "work", "good", "best", "need", "learn"}
+            _wiki_strong = [k for k in _wiki_kw if k not in _WIKI_WEAK]
+            wiki_query = " ".join(_wiki_strong or _wiki_kw) or _wq.strip()
+            for wr in fetch_wikipedia(wiki_query):
+                wurl = wr.get("url", "")
+                if not wurl or wurl in seen_urls or is_blocked_domain(wurl):
+                    continue
+                seen_urls.add(wurl)
+                wiki_direct_urls.add(wurl)
+                results.append(wr)
+            if wiki_direct_urls:
+                log.info("RAG wikipedia direct-fetch added %d result(s) for wiki_query=%r (query=%r)",
+                         len(wiki_direct_urls), wiki_query, query)
+        except Exception as we:
+            log.warning("RAG wikipedia merge failed for query=%r: %s", query, we)
+
         keywords = _extract_keywords(query)
         scored = []
         dropped = 0
@@ -868,9 +1016,14 @@ def search(query, max_results=None):
                 log.info("RAG relevance drop score=0: %s - %s", r.get("title", "")[:60], r.get("url", ""))
                 continue
             sr = _source_rank(r.get("url", ""))
+            # Exempt directly-fetched Wikipedia results from the Wikipedia
+            # deprioritization (rank 2 -> neutral 1) so they compete on relevance
+            # and can surface when DuckDuckGo missed them.
+            if sr == 2 and r.get("url", "") in wiki_direct_urls:
+                sr = 1
             scored.append((rs, sr, i, r))
         scored.sort(key=lambda t: (t[1], -t[0], t[2]))
-        results = [t[3] for t in scored]
+        results = [t[3] for t in scored][:max_results]
 
         log.info("RAG search complete: query=%r, %d relevant results (%d dropped) in %.1fs",
                  query, len(results), dropped, elapsed)

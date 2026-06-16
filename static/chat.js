@@ -207,6 +207,7 @@ function fixMissingSpaces(text) {
   // 10. Bullet points jammed after sentences: "concerns.* Growing" -> "concerns.\n* Growing"
   //     Also handles colon before bullet: "AI:* Reuters" -> "AI:\n* Reuters"
   text = text.replace(/([.\)!?:])\s*(\*\s)/g, "$1\n$2");
+  if (/(^|\n)\* /.test(text)) { text = text.replace(/([a-zA-Z0-9])(\* [A-Z])/g, "$1\n$2"); }
 
   // Restore protected content
   text = text.replace(/\x00#(\d+)\x00/g, function(_, idx) {
@@ -651,9 +652,8 @@ function receiveReplica(prompt) {
       var cleanText = messages[messages.length - 1].content;
       cleanText = cleanText.replace(/<\/s>?$/g, '').replace(/<s>?$/g, '');
       cleanText = cleanText.replace(/\[\/?INST\]?$/g, '');
-      cleanText = cleanText.trimEnd();
       messages[messages.length - 1].content = cleanText;
-      updateLastAssistant(cleanText);
+      updateLastAssistant(cleanText.trimEnd());
 
       // Check accumulated text for stop sequences
       var accumulated = messages[messages.length - 1].content;
@@ -679,6 +679,15 @@ function receiveReplica(prompt) {
     if (totalElapsed > 0 && tokenCount > 1) {
       speedInfo.textContent = (tokenCount / totalElapsed).toFixed(1) + ' tok/s';
       speedInfo.classList.remove('hidden');
+    }
+
+    // Final tick: REPLACE the append-streamed text with the server's clean
+    // canonical text (final_text). The per-step delta protocol cannot retract
+    // mid-stream edits (filler/hedge removal), so the displayed answer is
+    // corrected here on stop. Non-final (delta-append) messages are unaffected.
+    if (response.stop && typeof response.final_text === 'string') {
+      messages[messages.length - 1].content = response.final_text;
+      updateLastAssistant(response.final_text);
     }
 
     // HARD LIMIT: frontend force-stop if we've hit the token cap

@@ -174,6 +174,13 @@ _FACTUAL_INSTRUCTION = (
     "Write as an expert explaining to a peer, not as a search engine listing results. "
     "Refer to sources by number like [1]. Do not include URLs. "
     "Give direct specific answers with concrete data. Never hedge with phrases like 'however this can vary', 'it depends on the person', 'some people may', 'its important to note'. If you have a specific answer give it. If you dont know say so. Do not pad responses with obvious qualifiers."
+    "Lead with the direct answer in your very first sentence. If no exact figure exists, give a best estimate or a range immediately, then explain. Never open by stating you cannot provide an exact number or that it depends on various factors."
+)
+
+_QUICK_INSTRUCTION = (
+    "Base your answer on the search results below. Cite sources by number like [1]. No URLs. "
+    "Answer in one or two sentences at most, direct answer only, no preamble, no caveats, no extra context. "
+    "If no exact answer exists give a best estimate or range in one sentence. If you dont know, say so in one sentence."
 )
 
 _OPINION_INSTRUCTION = (
@@ -240,9 +247,12 @@ def augment_prompt_in_place(full_prompt, results):
         return full_prompt
 
     user_msg = extract_user_message(full_prompt)
-    mode = classify_query(user_msg)
-    instruction = _OPINION_INSTRUCTION if mode == "opinion" else _FACTUAL_INSTRUCTION
-    instruction = _extend_instruction(instruction, results, user_msg)
+    if user_msg.strip().lower().startswith("quick:"):
+        instruction = _QUICK_INSTRUCTION
+    else:
+        mode = classify_query(user_msg)
+        instruction = _OPINION_INSTRUCTION if mode == "opinion" else _FACTUAL_INSTRUCTION
+        instruction = _extend_instruction(instruction, results, user_msg)
     instruction = instruction + "\n\n"
 
     # Find the last [INST] and inject context after it
@@ -257,8 +267,8 @@ def augment_prompt_in_place(full_prompt, results):
 
     built = (
         full_prompt[:insert_pos]
-        + instruction
         + context_block + "\n\n"
+        + instruction
         + "User question: "
         + full_prompt[insert_pos:]
     )

@@ -24,6 +24,12 @@ def http_api_generate():
         repetition_penalty = get_typed_arg("repetition_penalty", float)
         max_length = get_typed_arg("max_length", int)
         max_new_tokens = get_typed_arg("max_new_tokens", int)
+        # Quick-mode: cap generation length when the user message (text after the
+        # last [INST] in the raw inputs) starts with "quick:". max_new_tokens may
+        # be None here (caller supplied max_length instead), so guard before min().
+        _quick_portion = (inputs or "").rsplit("[INST]", 1)[-1].strip().lower()
+        if _quick_portion.startswith("quick:") and max_new_tokens is not None:
+            max_new_tokens = min(max_new_tokens, 100)
         use_rag = get_typed_arg("rag", str, "auto")
         logger.info(f"generate(), {model_name=}, {inputs=}")
 

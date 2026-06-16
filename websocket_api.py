@@ -12,7 +12,7 @@ import speed_tracker
 import rag_pipeline
 import rag_search
 from app import models, sock
-from utils import safe_decode, strip_filler_phrases, could_match_fallback_prefix
+from utils import safe_decode, strip_filler_phrases, could_match_fallback_prefix, safe_emit_len_for_citations
 
 logger = hivemind.get_logger(__file__)
 
@@ -75,6 +75,11 @@ def ws_api_generate(ws):
                         raise ValueError("extra_stop_sequences require stop_sequence length to be exactly 1 token")
 
                 max_total_tokens = request.get("max_total_tokens", 80)
+                # Quick-mode: cap generation length when the user message (text after
+                # the last [INST] in the original request) starts with "quick:".
+                _quick_portion = (request.get("inputs") or "").rsplit("[INST]", 1)[-1].strip().lower()
+                if _quick_portion.startswith("quick:"):
+                    max_total_tokens = min(max_total_tokens, 100)
 
                 all_outputs = ""
                 sent_filtered_len = 0
@@ -153,13 +158,20 @@ def ws_api_generate(ws):
                         if not stop and could_match_fallback_prefix(filtered_all):
                             filtered_delta = ""
                         else:
-                            filtered_delta = filtered_all[sent_filtered_len:] if len(filtered_all) > sent_filtered_len else ""
-                            sent_filtered_len = max(sent_filtered_len, len(filtered_all))
+                            emit_len = len(filtered_all) if stop else safe_emit_len_for_citations(filtered_all)
+                            filtered_delta = filtered_all[sent_filtered_len:emit_len] if emit_len > sent_filtered_len else ""
+                            sent_filtered_len = max(sent_filtered_len, emit_len)
                         logger.info(f"ws.generate.step(), all_outputs={repr(all_outputs)}, stop={stop}, generated={total_generated}/{max_total_tokens}")
                         step_msg = {
                             "ok": True, "outputs": filtered_delta, "stop": stop,
                             "token_count": token_count, "generated": total_generated,
                         }
+                        # On the final tick, filtered_all is the full cleaned canonical
+                        # text (is_final=stop ran the complete strip). Send it so the
+                        # client can replace its append-streamed text and pick up any
+                        # retroactive cleaning the per-step delta protocol can't convey.
+                        if stop:
+                            step_msg["final_text"] = filtered_all
                         if stop and rag_sources:
                             step_msg["rag_sources"] = [{"title": r["title"], "url": r["url"]} for r in rag_sources]
                             rag_sources = []

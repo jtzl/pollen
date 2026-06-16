@@ -17,8 +17,8 @@ CACHE_TTL = 10
 # browser never makes a cross-origin request (the WP endpoint doesn't send
 # Access-Control-Allow-Origin). Cached for 5 minutes since votes/categories
 # change slowly and the modal can be opened repeatedly.
-CURATED_SOURCES_URL = "https://makeyouraismarter.com/wp-json/pollen/v1/sources?limit=100"
-CURATED_CATEGORIES_URL = "https://makeyouraismarter.com/wp-json/pollen/v1/categories"
+CURATED_SOURCES_URL = "https://organized.info/wp-json/pollen/v1/sources?limit=100"
+CURATED_CATEGORIES_URL = "https://organized.info/wp-json/pollen/v1/categories"
 CURATED_SOURCES_TTL = 300
 _curated_sources_cache = {"data": None, "expires_at": 0.0}
 
