@@ -1,56 +1,5 @@
-from typing import Dict, List, Tuple, Union
-
-import hivemind
-import torch
-from petals import AutoDistributedModelForCausalLM
-from transformers import AutoTokenizer, PreTrainedModel, PreTrainedTokenizer
-
-import config
-from data_structures import ModelConfig
-
-logger = hivemind.get_logger(__file__)
-
-
-def load_models() -> Dict[str, Tuple[PreTrainedModel, PreTrainedTokenizer, ModelConfig]]:
-    models = {}
-    for family in config.MODEL_FAMILIES.values():
-        for model_config in family:
-            backend_config = model_config.backend
-
-            logger.info(f"Loading tokenizer for {backend_config.repository}")
-            tokenizer = AutoTokenizer.from_pretrained(backend_config.repository, add_bos_token=False, use_fast=False)
-
-            logger.info(
-                f"Loading model {backend_config.repository} with adapter {backend_config.adapter} in {config.TORCH_DTYPE}"
-            )
-            # We set use_fast=False since LlamaTokenizerFast takes a long time to init
-            model = AutoDistributedModelForCausalLM.from_pretrained(
-                backend_config.repository,
-                active_adapter=backend_config.adapter,
-                torch_dtype=config.TORCH_DTYPE,
-                initial_peers=config.INITIAL_PEERS,
-                max_retries=3,
-            )
-            model = model.to(config.DEVICE)
-
-            for key in [backend_config.key] + list(backend_config.aliases):
-                models[key] = model, tokenizer, backend_config
-    return models
-
-
-def safe_decode(tokenizer: PreTrainedTokenizer, outputs: Union[torch.Tensor, List[int]]) -> str:
-    # Workaround to make SentencePiece .decode() keep leading spaces in a token
-    fake_token = tokenizer("^")["input_ids"][0]
-    outputs = outputs.tolist() if isinstance(outputs, torch.Tensor) else outputs
-    result = tokenizer.decode([fake_token] + outputs)
-
-    # We use .lstrip() since SentencePiece may add leading spaces, e.g. if the outputs are "</s>"
-    return result.lstrip()[1:]
-
-# ============================================================
-# Response post-processing: strip hedging / filler phrases
-# ============================================================
 import re as _re
+import re
 
 _FILLER_PATTERNS = [
     # Word boundaries (\b) on the leading word prevent matches that would start
@@ -274,7 +223,79 @@ def _strip_trailing_ref_block(text):
     return text[: last.start()].rstrip().rstrip(".,:;")
 
 
-def _strip_urls(text):
+# Fabricated trailing academic citation: a bibliography-style reference the
+# model appends after the answer with NO "References"/"Sources" heading (so
+# _strip_trailing_ref_block, which is heading-gated, misses it). These are
+# redundant (real sources render as citation pills) and usually hallucinated.
+#
+# Matching is anchored on the diagnostic academic signature -- a (YYYY) year
+# TOGETHER WITH a volume(issue), pages locator like "127(6), 489-498" -- both
+# required, at the very end of the text. A bare year or surname in ordinary
+# prose lacks the volume(issue),pages structure and is never touched. The
+# citation's left boundary is found via an author-list lead ("Lastname, X.")
+# or a Title-Case organisation/title lead running straight into the year, so
+# the real answer sentence before it (and its terminal punctuation) is kept.
+_FAB_CIT_RE = _re.compile(
+    r"(?:(?<=[.!?])[ \t]+|\n+)"                       # boundary: after a sentence, or a new line
+    r"(?P<cit>"
+    r"(?:"
+    r"[A-Za-z][A-Za-z.'’-]*,[ \t]+[A-Z]\.[^\n]{0,90}?\(\d{4}\)"   # (a) author list -> (YYYY)
+    r"|"
+    r"(?:[A-Z][A-Za-z.'’&-]*[ \t]+){1,7}\(\d{4}\)"                # (b) Title-Case/org -> (YYYY)
+    r")"
+    r"[^\n]*?"                                        # ... title / journal ...
+    r"\b\d{1,4}\(\d{1,3}\)[,:]?[ \t]*\d{1,4}[ \t]*[-–][ \t]*\d{1,4}"  # volume(issue), pages
+    r"[.”\"'\)\]]*"                               # optional trailing punctuation
+    r")[ \t]*\Z"
+)
+
+
+def _strip_trailing_fabricated_citation(text):
+    """Remove a trailing fabricated academic citation appended after the answer.
+
+    Fires only on the academic signature: a (YYYY) year together with a
+    volume(issue), pages locator, at the very end of the text. Requiring the
+    volume(issue),pages structure means a bare year, a surname, or "according
+    to a 2020 study" in ordinary prose is never stripped. The real answer
+    sentence before the citation, including its terminal punctuation, is kept.
+    """
+    if not text:
+        return text
+    m = _FAB_CIT_RE.search(text)
+    if not m:
+        return text
+    return text[: m.start()].rstrip()
+
+
+# Inline source attributions the model writes alongside the real [N] citation
+# pills, e.g. "(Source: Owl Labs, 2019)" or the fused "[1, 5](Sources: ...)".
+# Real sources render as pills, so these parentheticals are redundant clutter.
+# Only parentheticals that OPEN with Source:/Sources: (any case of the first
+# letter) are matched; the regex deliberately excludes any preceding [N]
+# marker, so the fused form loses only the parenthetical and keeps its marker.
+# Ordinary parentheticals -- "(for example, ...)", "(around 20 percent)",
+# "(such as X)", "(7 to 9 hours)" -- do not start with Source:/Sources: and are
+# left untouched.
+_INLINE_SOURCE_ATTR_RE = _re.compile(r"\(\s*[Ss]ources?\s*:[^)]*\)")
+
+
+def _strip_inline_source_attributions(text):
+    """Remove inline (Source: ...) / (Sources: ...) parentheticals, preserving
+    a fused [N] marker and any other (non-source) parenthetical. Tidies the
+    whitespace / punctuation spacing left where a mid-sentence group is cut."""
+    if not text or "ource" not in text:
+        return text
+    new = _INLINE_SOURCE_ATTR_RE.sub("", text)
+    if new == text:
+        return text
+    # Collapse the double space / space-before-punctuation a mid-sentence
+    # removal leaves behind (e.g. "productive , contributing" -> "productive,").
+    new = _re.sub(r"[ \t]{2,}", " ", new)
+    new = _re.sub(r"[ \t]+([,.;:!?])", r"\1", new)
+    return new
+
+
+def _strip_urls(text, keep_urls=False):
     """Bulletproof URL + citation-block cleanup.
 
     Ordering matters: complete URL patterns run before the partial catchall
@@ -291,34 +312,63 @@ def _strip_urls(text):
     text = _REF_BRACKET_URL_RE.sub("", text)
     # 4) Markdown links: keep anchor, drop URL.
     text = _MD_LINK_URL_RE.sub(r"\1", text)
-    # 5) Complete angle-bracketed URLs.
-    text = _ANGLE_URL_RE.sub("", text)
-    # 6) Bare complete URLs.
-    text = _BARE_URL_RE.sub("", text)
-    # 7) Partial / truncated URL remnants from token cutoff.
-    text = _PARTIAL_URL_RE.sub("", text)
-    # 7b) Truncated trailing "<" fragments left behind when token limit
-    # cuts off before the URL body even started. _ANGLE_URL_RE and
-    # _PARTIAL_URL_RE require http(s) inside the brackets, so a "<"
-    # with no body still slips through. Examples:
-    #   "...retrieved from <"     -> ""
-    #   "...source: <"            -> ""
-    #   "...etrieved from <"      -> "" (truncated connector form)
-    #   "Read more at\n  <"       -> "Read more at"
-    # Pattern A drops a known attribution connector + "<...$".
-    # Pattern B drops any orphan "<" sitting alone at end of a line
-    # (whitespace required before it so mid-prose "<" is preserved).
-    text = _re.sub(
-        r"(?im)(?:,\s*)?"
-        r"\b(?:available\s+at|retrieved\s+from|read\s+more\s+at|"
-        r"source[s]?|see(?:\s+also)?|found\s+at|"
-        r"more\s+(?:info(?:\s+at)?|details|at)|"
-        r"link[s]?|url|visit)"
-        r"\s*[:\-]?\s*<[^>\n]*$",
-        "",
-        text,
-    )
-    text = _re.sub(r"(?m)\s+<[^\s>]*$", "", text)
+    # When keep_urls is True (e.g. the user explicitly asked for a URL),
+    # skip the bare/angle/partial URL removal and the dangling-promise
+    # cleanup so a real URL the model gave as the answer is preserved.
+    if not keep_urls:
+        # 5) Complete angle-bracketed URLs.
+        text = _ANGLE_URL_RE.sub("", text)
+        # 6) Bare complete URLs.
+        text = _BARE_URL_RE.sub("", text)
+        # 7) Partial / truncated URL remnants from token cutoff.
+        text = _PARTIAL_URL_RE.sub("", text)
+        # 7b) Truncated trailing "<" fragments left behind when token limit
+        # cuts off before the URL body even started. _ANGLE_URL_RE and
+        # _PARTIAL_URL_RE require http(s) inside the brackets, so a "<"
+        # with no body still slips through. Examples:
+        #   "...retrieved from <"     -> ""
+        #   "...source: <"            -> ""
+        #   "...etrieved from <"      -> "" (truncated connector form)
+        #   "Read more at\n  <"       -> "Read more at"
+        # Pattern A drops a known attribution connector + "<...$".
+        # Pattern B drops any orphan "<" sitting alone at end of a line
+        # (whitespace required before it so mid-prose "<" is preserved).
+        text = _re.sub(
+            r"(?im)(?:,\s*)?"
+            r"\b(?:available\s+at|retrieved\s+from|read\s+more\s+at|"
+            r"source[s]?|see(?:\s+also)?|found\s+at|"
+            r"more\s+(?:info(?:\s+at)?|details|at)|"
+            r"link[s]?|url|visit)"
+            r"\s*[:\-]?\s*<[^>\n]*$",
+            "",
+            text,
+        )
+        text = _re.sub(r"(?m)\s+<[^\s>]*$", "", text)
+        # 7c) Dangling URL promises: the model announces a link/URL/site but
+        # provides none ("The URL for X is.", "The website is", "you can find it
+        # at", "here is the link", "It is available at."). Real URLs were already
+        # stripped above; the negative lookahead additionally protects any URL or
+        # domain that survived, and the end-of-line anchor keeps sentences that
+        # continue ("the site is great", "available at 5pm", "found it at the
+        # store") intact. Only fires at a clause boundary (line start / after a
+        # sentence terminator) so mid-sentence appends are left untouched rather
+        # than corrupted.
+        text = _re.sub(
+            r"(?im)"
+            r"(?:(?<=[.!?])\s+|^)"
+            r"(?:"
+            r"the\s+(?:url|link|website|site)(?:\s+for\s+[^.:\n]{1,50})?\s+is"
+            r"|here\s+is\s+the\s+(?:link|url|website)"
+            r"|you\s+can\s+(?:find|access|visit|reach)\s+(?:it|them)\s+at"
+            r"|(?:it|this|they|these|the\s+\w+(?:\s+\w+){0,2})\s+(?:is|are|can\s+be)\s+available\s+at"
+            r"|available\s+at"
+            r"|visit\s+(?:it|the\s+(?:site|website|link))\s+at"
+            r")"
+            r"(?![^\n]*(?:https?://|www\.|[a-z0-9-]+\.[a-z]{2,}))"
+            r"\s*[:\-]?\s*[.!?]*\s*(?=\n|$)",
+            "",
+            text,
+        )
     # 8) Cleanup: empty parens/brackets left behind by markdown strip.
     text = _re.sub(r"\(\s*\)", "", text)
     text = _re.sub(r"\[\s*\]", "", text)
@@ -387,16 +437,39 @@ def _deduplicate_response(text):
     if not text or len(text) < 200:
         return text
 
-    # 1) Numbered-list restart: a second occurrence of a "1." opener on its
-    #    own line, with the first one also visible, almost always means the
-    #    model restarted the list. Cut before the second "1.".
+    # 1) Numbered-list restart: a second "1." opener usually means the model
+    #    looped and restarted the list. But a legitimately different second
+    #    list (e.g. a "Cons:" list after a "Pros:" list) also opens with "1.".
+    #    Only treat it as a restart and cut when BOTH: (a) the second "1." is
+    #    NOT introduced by a new section heading, and (b) its first item is a
+    #    near-duplicate of the first list's first item (real repeated content,
+    #    not just shared "1./2./3." scaffolding).
     opener_ones = [m for m in _NUMBERED_ITEM_RE.finditer(text) if m.group(1) == "1"]
     if len(opener_ones) >= 2:
         cutoff = opener_ones[1].start()
         # Only treat as a restart if there was substantive content before it
         if cutoff > 120:
-            cutoff = _snap_to_word_boundary(text, cutoff)
-            return _trim_to_last_sentence(text[:cutoff])
+            # (a) Section-heading guard: a short line ending in ":" or a bold
+            #     "**...**" line right before the 2nd "1." marks a new, distinct
+            #     list -> not a loop.
+            _preceding = text[:cutoff].rstrip("\n")
+            _last_line = _preceding.rsplit("\n", 1)[-1].strip()
+            _heading_before = _last_line.endswith(":") or (
+                _last_line.startswith("**") and _last_line.endswith("**"))
+            # (b) Content guard: real loop only if the 2nd list's first item
+            #     actually repeats the 1st list's first item's content.
+            def _item_body(_m):
+                _start = _m.end()
+                _nxt = _NUMBERED_ITEM_RE.search(text, _start)
+                _end = _nxt.start() if _nxt else len(text)
+                return _normalize_for_compare(text[_start:_end])
+            _b1 = _item_body(opener_ones[0])
+            _b2 = _item_body(opener_ones[1])
+            _similar = bool(_b1) and bool(_b2) and (
+                _b2[:100] in _b1 or _b1[:100] in _b2)
+            if not _heading_before and _similar:
+                cutoff = _snap_to_word_boundary(text, cutoff)
+                return _trim_to_last_sentence(text[:cutoff])
 
     # 2) Paragraph-level duplication: if a paragraph (>= ~10 words) has a
     #    normalised 100-char prefix that already appears earlier in the
@@ -641,7 +714,59 @@ def _trim_incomplete_trailing_sentence(text):
     return text
 
 
-def strip_filler_phrases(text, max_citations=None, is_final=True):
+# URL-seeking queries: the user explicitly wants a URL/link/website/address.
+# When true, callers pass keep_urls=True so a URL the model gives as the direct
+# answer survives the URL-stripping pipeline.
+_URL_QUERY_RE = _re.compile(
+    r"\bwhat(?:'?s| is| are)?\s+(?:the\s+)?(?:url|link|website|web\s*site|web\s*address|web\s*page|homepage)\b"
+    r"|\b(?:url|link|website|web\s*site|site|web\s*address|web\s*page|homepage)\b[^.\n]{0,25}\b(?:of|for)\b"
+    r"|\b(?:of|for)\b[^.\n]{0,25}\b(?:url|link|website|web\s*site|web\s*address|web\s*page|homepage)\b",
+    _re.IGNORECASE,
+)
+
+
+def is_url_query(text):
+    """True when the user is asking for a URL/link/website/address, e.g.
+    "what is the url of X", "link for X", "website of X". Case-insensitive.
+    Used to set keep_urls=True so a URL the model gives as the direct answer
+    survives the URL-stripping pipeline."""
+    return bool(text and _URL_QUERY_RE.search(text))
+
+
+def _normalize_sections(text):
+    """Split a multi-section answer cleanly: when a short line ending with a
+    colon introduces a list, make that heading its own paragraph and restart
+    the numbered list at 1 beneath it. No-op unless the text has at least one
+    such heading and at least one numbered item."""
+    if not text:
+        return text
+    lines = text.split("\n")
+    heading = _re.compile(r"^\s*\*{0,2}[A-Za-z][^:\n]{0,58}:\*{0,2}\s*$")
+    item = _re.compile(r"^(\s*)(?:\d+[.)]+|[-*\u2022])(\s+)(.*)$")
+    if not any(heading.match(l) for l in lines):
+        return text
+    if not any(item.match(l) for l in lines):
+        return text
+    out = []
+    counter = 0
+    for line in lines:
+        if heading.match(line):
+            if out and out[-1].strip() != "":
+                out.append("")
+            out.append(line.rstrip())
+            out.append("")
+            counter = 0
+            continue
+        m = item.match(line)
+        if m:
+            counter += 1
+            out.append(m.group(1) + str(counter) + ". " + m.group(3))
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def strip_filler_phrases(text, max_citations=None, is_final=True, keep_urls=False):
     """Remove hedging/filler phrases, raw URLs, loop-repetition, and
     out-of-range citation markers from LLM output. When `max_citations`
     is provided (the number of RAG sources actually returned for this
@@ -658,12 +783,22 @@ def strip_filler_phrases(text, max_citations=None, is_final=True):
     for pat in _FILLER_PATTERNS:
         text = pat.sub("", text)
     text = _strip_fallback_prefix(text)
-    text = _strip_urls(text)
+    text = _strip_urls(text, keep_urls=keep_urls)
     text = _deduplicate_response(text)
     text = _cap_citation_numbers(text, max_citations)
     if is_final:
         text = _trim_mid_word_start(text)
         text = _trim_incomplete_trailing_sentence(text)
+        text = _normalize_sections(text)
+        # Remove a trailing fabricated academic citation (no heading, so
+        # _strip_trailing_ref_block above misses it). is_final only, so it
+        # runs on the websocket final_text and the http one-shot, never on a
+        # streaming step where the citation may still be forming.
+        text = _strip_trailing_fabricated_citation(text)
+        # Strip inline (Source: ...) attributions the model writes
+        # alongside the real [N] pills (mid-sentence, so not caught by
+        # the trailing strippers above). Preserves any fused [N] marker.
+        text = _strip_inline_source_attributions(text)
     text = _re.sub(r" {2,}", " ", text)
     text = _re.sub(r"\s+([,.;:!?])", r"\1", text)
     text = _re.sub(r",\s*,+", ",", text)
@@ -682,3 +817,40 @@ def strip_filler_phrases(text, max_citations=None, is_final=True):
     # earlier strip that introduces a new paragraph break is also covered.
     text = _re.sub(r"(\n\n)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text)
     return text
+
+
+# Citation-marker post-processing (moved here from websocket_api.py; these are
+# response-cleanup helpers and belong with the rest of the post-processing).
+def _filter_cited_sources(text, sources):
+    """Return only the source entries whose 1-based index appears as an [n]
+    citation marker in the model output text. Empty list if none were cited."""
+    if not sources:
+        return []
+    cited = set()
+    for grp in re.findall(r"\[([\d,\s]+)\]", text or ""):
+        for part in grp.split(","):
+            part = part.strip()
+            if part.isdigit():
+                cited.add(int(part))
+    return [sources[n - 1] for n in sorted(cited) if 1 <= n <= len(sources)]
+
+
+def _strip_orphan_markers(text, n_sources):
+    """Remove [n] citation markers whose index has no matching source (index
+    out of range, or ALL markers when n_sources == 0), so the reader never sees
+    a citation marker without a corresponding source pill. Valid in-range
+    indices are kept; a compound marker like [1, 5] keeps only the valid parts
+    and is dropped entirely if none remain."""
+    if not text:
+        return text
+
+    def _repl(m):
+        valid = [p.strip() for p in m.group(1).split(",")
+                 if p.strip().isdigit() and 1 <= int(p.strip()) <= n_sources]
+        return "[" + ", ".join(valid) + "]" if valid else ""
+
+    out = re.sub(r"\[([\d,\s]+)\]", _repl, text)
+    # Tidy whitespace left where a marker was removed.
+    out = re.sub(r" {2,}", " ", out)
+    out = re.sub(r"\s+([,.;:!?])", r"\1", out)
+    return out

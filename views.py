@@ -3,8 +3,8 @@ import json
 
 from flask import Flask, render_template
 
-import config
-import image_gen
+from pollen.core import config
+from pollen.infrastructure import image_gen
 
 
 def render_index(app: Flask) -> str:

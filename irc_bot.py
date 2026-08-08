@@ -21,7 +21,7 @@ import irc.bot
 import irc.connection
 import irc.strings
 from dotenv import load_dotenv
-import rag_pipeline
+from pollen.features.chat import rag_pipeline
 
 load_dotenv()
 
@@ -240,7 +240,7 @@ class PollenIRCBot(irc.bot.SingleServerIRCBot):
         model = data.get("model_name", "unknown") if data.get("ok") else "unknown"
         try:
             sys.path.insert(0, "/data/chat-ui")
-            from config import MODEL_DISPLAY_NAME, MODEL_BADGE, MODEL_CARD_URL
+            from pollen.core.config import MODEL_DISPLAY_NAME, MODEL_BADGE, MODEL_CARD_URL
             self._reply(
                 conn, target, nick,
                 "{} [{}] -- {}".format(MODEL_DISPLAY_NAME, MODEL_BADGE, MODEL_CARD_URL),

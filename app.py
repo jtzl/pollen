@@ -1,10 +1,10 @@
 import hivemind
 from flask import Flask, make_response
 from flask_cors import CORS
-from flask_sock import Sock
 
-import utils
+from pollen.features.chat import utils
 import views
+from pollen.core.extensions import sock
 
 logger = hivemind.get_logger(__file__)
 
@@ -13,9 +13,9 @@ models = utils.load_models()
 
 logger.info("Starting Flask app")
 app = Flask(__name__)
+app.config["MODELS"] = models
 CORS(app)
 app.config["SOCK_SERVER_OPTIONS"] = {"ping_interval": 25}
-sock = Sock(app)
 
 logger.info("Pre-rendering index page")
 index_html = views.render_index(app)
@@ -29,7 +29,16 @@ def main_page():
     return response
 
 
-import status_api
-import http_api
-import websocket_api
-import image_api
+from pollen.features.images.image_api import bp as image_api_bp
+app.register_blueprint(image_api_bp)
+from pollen.features.status.status_api import bp as status_api_bp
+app.register_blueprint(status_api_bp)
+from pollen.features.chat.http_api import bp as http_api_bp
+app.register_blueprint(http_api_bp)
+
+# WebSocket route: import websocket_api so its @sock.route runs (registering the
+# route on the sock blueprint) and inject models, THEN bind sock to the app.
+# Order matters: init_app must run after the route is registered on sock.
+from pollen.features.chat import websocket_api
+websocket_api.set_models(models)
+sock.init_app(app)

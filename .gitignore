@@ -38,3 +38,13 @@ rag_test_*.txt
 static/test_results.txt
 *.bak.*
 .env.*
+
+# Migration scratch and runtime state (appended)
+.speed_state.json
+.group1_ts
+.pollen_core_ts
+.pollen_infra_ts
+.pollen_*_ts
+.inline_bak_name
+.old_aet
+*.output

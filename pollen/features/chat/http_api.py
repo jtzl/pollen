@@ -1,18 +1,19 @@
 from traceback import format_exc
 
 import hivemind
-from flask import jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from petals.client.routing.sequence_manager import MissingBlocksError
 
-import config
-import rag_pipeline
-from app import app, models
-from utils import safe_decode, strip_filler_phrases
+from pollen.core import config
+from pollen.features.chat import rag_pipeline
+from pollen.features.chat.utils import safe_decode, strip_filler_phrases
 
 logger = hivemind.get_logger(__file__)
 
+bp = Blueprint("http_api", __name__)
 
-@app.post("/api/v1/generate")
+
+@bp.post("/api/v1/generate")
 def http_api_generate():
     try:
         model_name = get_typed_arg("model", str, config.MODEL_REPO)
@@ -33,6 +34,7 @@ def http_api_generate():
         use_rag = get_typed_arg("rag", str, "auto")
         logger.info(f"generate(), {model_name=}, {inputs=}")
 
+        models = current_app.config["MODELS"]
         model, tokenizer, backend_config = models[model_name]
         if not backend_config.public_api:
             raise ValueError(f"We do not provide public API for {model_name} due to license restrictions")

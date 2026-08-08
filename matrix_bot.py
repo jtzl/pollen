@@ -15,7 +15,7 @@ import time
 from urllib.request import urlopen, Request
 
 from dotenv import load_dotenv
-import rag_pipeline
+from pollen.features.chat import rag_pipeline
 from nio import AsyncClient, MatrixRoom, RoomMessageText, InviteMemberEvent
 
 load_dotenv()
@@ -127,7 +127,7 @@ def cmd_model():
     model = data.get("model_name", "unknown") if data.get("ok") else "unknown"
     try:
         sys.path.insert(0, "/data/chat-ui")
-        from config import MODEL_DISPLAY_NAME, MODEL_BADGE, MODEL_CARD_URL
+        from pollen.core.config import MODEL_DISPLAY_NAME, MODEL_BADGE, MODEL_CARD_URL
         return "{} [{}] \u2014 {}".format(MODEL_DISPLAY_NAME, MODEL_BADGE, MODEL_CARD_URL)
     except ImportError:
         return "Model: {}".format(model)

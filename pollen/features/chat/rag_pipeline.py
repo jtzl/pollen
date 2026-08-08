@@ -3,7 +3,7 @@
 import logging
 import re
 
-import rag_search
+from pollen.features.chat.retrieval import rag_search
 
 log = logging.getLogger("rag_pipeline")
 
@@ -66,6 +66,17 @@ _OPINION_PATTERNS = [
 ]
 _OPINION_RE = re.compile("|".join(_OPINION_PATTERNS), re.IGNORECASE)
 
+# Identity / self-reference: questions about who/what Pollen is. These must be
+# answered from the system-prompt identity, never a web search (which pulls
+# competitor facts like ChatGPT/Claude specs and makes Pollen misdescribe itself).
+_IDENTITY_PATTERNS = [
+    r"\bare you\s+(chatgpt|gpt-?4|gpt|claude|gemini|bard|an ai|a bot|a language model|a human|real|sentient|conscious)\b",
+    r"\b(who|what)\s+(are|made|created|trained|built|owns)\s+you\b",
+    r"\bwhat\s+(model|llm|ai|company)\s+are you\b",
+    r"\byour name\b",
+]
+_IDENTITY_RE = re.compile("|".join(_IDENTITY_PATTERNS), re.IGNORECASE)
+
 # Greeting-only subset of _STRICT_SKIP_PATTERNS. Used to short-circuit
 # hi/hello/hey/good morning etc. with a canned reply instead of sending
 # the raw text through Mixtral (which used to free-form continue into
@@ -125,7 +136,9 @@ def extract_user_message(prompt):
 # Prompt-size budget. The Petals server advertises a 2048-token KV cache
 # ceiling, so the augmented prompt must stay well under that to leave room
 # for generation. We target 1800 tokens for the full prompt sent to Mixtral.
-_PROMPT_TOKEN_BUDGET = 1800
+_KV_CEILING = 2048
+_OUTPUT_RESERVE = 700
+_PROMPT_TOKEN_BUDGET = _KV_CEILING - _OUTPUT_RESERVE
 # Conservative chars-per-token estimate for Mixtral's sentencepiece tokenizer
 # on English text (real tokenizer averages ~3.5 chars/token; we use 3 for safety).
 _CHARS_PER_TOKEN = 3
@@ -168,12 +181,11 @@ def _fit_prompt_to_budget(full_prompt, context_block):
 
 
 _FACTUAL_INSTRUCTION = (
-    "You MUST base your answer on the search results provided below. Do not rely on your own knowledge for factual claims as it may be outdated or wrong. "
-    "If search results do not contain enough information clearly state you could not find reliable information rather than guessing. "
-    "Synthesize across sources, include exact numbers, dates, names, and data points, and draw connections between sources. "
+    "Base your answer primarily on the search results provided below, and cite them by number like [1] when you use a specific fact. Do not include URLs. "
+    "When the search results are thin, irrelevant, or missing, answer from your own knowledge instead. Do not refuse or say you could not find information just because the search was weak. "
+    "Synthesize across sources, include exact numbers, dates, names, and data points, and draw connections between them. "
     "Write as an expert explaining to a peer, not as a search engine listing results. "
-    "Refer to sources by number like [1]. Do not include URLs. "
-    "Give direct specific answers with concrete data. Never hedge with phrases like 'however this can vary', 'it depends on the person', 'some people may', 'its important to note'. If you have a specific answer give it. If you dont know say so. Do not pad responses with obvious qualifiers."
+    "Give direct specific answers with concrete data. Never hedge with phrases like 'however this can vary', 'it depends on the person', 'some people may', 'its important to note'. If you have a specific answer give it. If you genuinely do not know, say so briefly. Do not pad responses with obvious qualifiers. "
     "Lead with the direct answer in your very first sentence. If no exact figure exists, give a best estimate or a range immediately, then explain. Never open by stating you cannot provide an exact number or that it depends on various factors."
 )
 
@@ -288,6 +300,11 @@ def classify_query(message):
     """
     t = (message or "").strip()
     if not t or len(t) < 4:
+        return "skip"
+    # Identity / self-reference questions ("are you ChatGPT", "who made you",
+    # "what model are you") answer from the system-prompt identity; a web search
+    # here just pulls competitor facts, so skip search for them.
+    if _IDENTITY_RE.search(t):
         return "skip"
     # Only skip for pure greetings / acknowledgements and bare arithmetic.
     if _STRICT_SKIP_RE.search(t):

@@ -3,10 +3,11 @@ import subprocess
 import time
 import urllib.request
 import hivemind
-from flask import jsonify
+from flask import Blueprint, current_app, jsonify
 
-from app import app, models
-import speed_tracker
+from pollen.infrastructure import speed_tracker
+
+bp = Blueprint("status_api", __name__)
 
 logger = hivemind.get_logger(__file__)
 
@@ -136,13 +137,14 @@ def _get_sequence_manager(model):
     return None
 
 
-@app.route("/api/status")
+@bp.route("/api/status")
 def api_status():
     now = time.time()
     if _cache["data"] and now - _cache["time"] < CACHE_TTL:
         return jsonify(_cache["data"])
 
     try:
+        models = current_app.config["MODELS"]
         model_name = list(models.keys())[0]
         model, tokenizer, backend_config = models[model_name]
 
@@ -250,7 +252,7 @@ def api_status():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@app.route("/api/curated-sources")
+@bp.route("/api/curated-sources")
 def api_curated_sources():
     """Server-side proxy for the WordPress curated-sources endpoint.
 
