@@ -217,9 +217,23 @@ function fixMissingSpaces(text) {
   return text;
 }
 
-function renderMarkdown(text) {
+function renderMarkdown(text, isFinal) {
+  isFinal = isFinal || false;
   if (typeof marked !== 'undefined' && text) {
     try {
+      if (isFinal) {
+        // FINAL render: the complete, server-cleaned answer. Run the whole text
+        // through marked for authoritative markdown (ordered/unordered lists,
+        // bold, links, inline/block code). Same pre-cleaning as streaming so the
+        // spacing/list fixes still apply to the finished text.
+        var fpre = fixMissingSpaces(text);
+        fpre = fpre.replace(/([^\n])\n(\*\*[A-Z])/g, "$1\n\n$2");
+        fpre = fpre.replace(/([^\n])\n(\d{1,2}\.\s+\*\*)/g, "$1\n\n$2");
+        var fhtml = marked.parse(fpre);
+        fhtml = fhtml.replace(/<pre>/g, '<pre><button class="code-copy-btn" onclick="copyCode(this)">Copy</button>');
+        return fhtml;
+      }
+      // STREAMING render (isFinal false): EXACT current behavior, unchanged.
       text = fixMissingSpaces(text);
       // Ensure paragraph breaks between sections: double-newline before lines
       // starting with a bold header like **Title** or a numbered header like "1. **"
@@ -298,6 +312,7 @@ function renderRagSources(sources, colEl) {
 
 function addMessage(role, content, time) {
   if (welcomeScreen) welcomeScreen.style.display = 'none';
+  document.body.classList.remove('chat-empty');
   var ts = time || new Date();
   var isUser = role === 'user';
 
@@ -368,10 +383,10 @@ function getLastAssistantContent() {
   return all.length > 0 ? all[all.length - 1] : null;
 }
 
-function updateLastAssistant(fullText) {
+function updateLastAssistant(fullText, isFinal) {
   var el = getLastAssistantContent();
   if (el) {
-    el.innerHTML = renderMarkdown(fullText);
+    el.innerHTML = renderMarkdown(fullText, isFinal);
     scrollToBottom();
   }
 }
@@ -383,8 +398,10 @@ function rebuildMessages() {
       messagesEl.appendChild(welcomeScreen);
       welcomeScreen.style.display = '';
     }
+    document.body.classList.add('chat-empty');
     return;
   }
+  document.body.classList.remove('chat-empty');
   if (welcomeScreen) welcomeScreen.style.display = 'none';
   for (var i = 0; i < messages.length; i++) {
     var refs = addMessage(messages[i].role, messages[i].content, messages[i].time);
@@ -681,13 +698,24 @@ function receiveReplica(prompt) {
       speedInfo.classList.remove('hidden');
     }
 
+    // Mid-stream resync: the server detected that its canonical text no longer
+    // matches what we have accumulated (a retroactive strip shortened it or
+    // rewrote an already-sent prefix), so it sent the full current text with
+    // replace=true. Swap ours out wholesale. This is NOT the end of generation:
+    // stop is false and streaming continues, so isFinal stays false here.
+    if (!response.stop && response.replace === true &&
+        typeof response.final_text === 'string') {
+      messages[messages.length - 1].content = response.final_text;
+      updateLastAssistant(response.final_text, false);
+    }
+
     // Final tick: REPLACE the append-streamed text with the server's clean
     // canonical text (final_text). The per-step delta protocol cannot retract
     // mid-stream edits (filler/hedge removal), so the displayed answer is
     // corrected here on stop. Non-final (delta-append) messages are unaffected.
     if (response.stop && typeof response.final_text === 'string') {
       messages[messages.length - 1].content = response.final_text;
-      updateLastAssistant(response.final_text);
+      updateLastAssistant(response.final_text, true);
     }
 
     // HARD LIMIT: frontend force-stop if we've hit the token cap
@@ -695,12 +723,12 @@ function receiveReplica(prompt) {
       // Trim to last complete sentence to avoid mid-word cutoff
       var trimmed = trimToLastSentence(messages[messages.length - 1].content);
       messages[messages.length - 1].content = trimmed;
-      updateLastAssistant(trimmed);
+      updateLastAssistant(trimmed, true);
       if (response.rag_sources && response.rag_sources.length > 0 && lastAssistantCol) {
         var contentEl = lastAssistantCol.querySelector('.msg-content');
         if (contentEl) {
           var rawText = messages[messages.length - 1].content;
-          contentEl.innerHTML = linkifyCitations(renderMarkdown(rawText), response.rag_sources);
+          contentEl.innerHTML = linkifyCitations(renderMarkdown(rawText, true), response.rag_sources);
         }
         renderRagSources(response.rag_sources, lastAssistantCol);
         messages[messages.length - 1].rag_sources = response.rag_sources;
@@ -724,7 +752,7 @@ function receiveReplica(prompt) {
       var contentEl = lastAssistantCol.querySelector('.msg-content');
       if (contentEl) {
         var rawText = messages[messages.length - 1].content;
-        contentEl.innerHTML = linkifyCitations(renderMarkdown(rawText), response.rag_sources);
+        contentEl.innerHTML = linkifyCitations(renderMarkdown(rawText, true), response.rag_sources);
       }
       renderRagSources(response.rag_sources, lastAssistantCol);
       messages[messages.length - 1].rag_sources = response.rag_sources;

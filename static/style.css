@@ -97,7 +97,8 @@
 .msg-content h2 { font-size: 1.1em; }
 .msg-content h3 { font-size: 1em; }
 .msg-content p { margin: 6px 0; }
-.msg-content ul, .msg-content ol { margin: 6px 0; padding-left: 20px; }
+.msg-content ol { list-style: decimal outside; margin: 6px 0; padding-left: 1.75em; }
+.msg-content ul { list-style: disc outside; margin: 6px 0; padding-left: 1.75em; }
 .msg-content li { margin: 2px 0; }
 .msg-content strong { font-weight: 600; color: #e5e7eb; }
 .msg-content em { font-style: italic; }
@@ -680,4 +681,33 @@
   color: #6b7280;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+}
+
+/* === Centered empty-state composer (Claude/ChatGPT style) === */
+body.chat-empty #chat-container {
+  flex: 0 0 auto;
+  margin-top: auto;
+  overflow: visible;
+}
+body.chat-empty #chat-container .max-w-3xl {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+body.chat-empty #welcome-screen {
+  padding-top: 0 !important;
+  padding-bottom: 1.5rem !important;
+}
+body.chat-empty footer {
+  margin-top: 0;
+  margin-bottom: auto;
+  border-top-color: transparent;
+  background-color: transparent;
+  backdrop-filter: none;
+}
+/* The auto margins above centre the greeting and composer as one group. This
+   padding grows that group downward, lifting the visible content above the
+   vertical middle. Selector must outrank the <=480px rule at the top of this
+   file that also sets the footer's padding-bottom. */
+body.chat-empty > div > footer.flex-shrink-0 {
+  padding-bottom: 10vh;
 }

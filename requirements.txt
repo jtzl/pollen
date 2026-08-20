@@ -8,3 +8,5 @@ diffusers
 transformers
 accelerate
 safetensors
+fastapi
+uvicorn
