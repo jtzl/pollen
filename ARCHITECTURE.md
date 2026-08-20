@@ -2,36 +2,43 @@
 
 Pollen is a self-hosted chat interface for a decentralized Mixtral-8x7B model served over a Petals cluster, with a retrieval-augmented generation (RAG) pipeline for grounding answers in web and curated sources.
 
-This document describes the current architecture and its known limitations. The codebase has completed its migration to a layered, feature-based package; this document is the reference for contributors.
+This document describes the current architecture and its known limitations. The codebase has completed its migration to a layered, feature-based package served by a single FastAPI process; this document is the reference for contributors.
 
 ## Current architecture
 
-The backend is a Flask application, fronted by a second, model-free FastAPI process that serves the non-inference routes. The Python modules live in a pollen/ package organized by layer and feature (see Package layout below); only the process entry points remain at the repository root. Flask routes are registered explicitly: the API modules expose Flask blueprints, and app.py imports them and calls app.register_blueprint for each. The old circular import, where modules bound their routes by importing back from app, has been removed.
+The backend is a single FastAPI application (uvicorn, systemd unit pollen-fastapi.service, bound to loopback on 127.0.0.1:5001) that holds the Petals model client and serves every route: the streaming chat WebSocket, the one-shot HTTP generate, status and curated-sources, the image routes, the main page, and the static assets. The Python modules live in a pollen/ package organized by layer and feature (see Package layout below); the process entry points remain at the repository root. The earlier Flask/gunicorn process has been retired.
 
 ### Request paths
 
-- Web chat streaming: browser WebSocket to /api/v2/generate, handled in pollen/features/chat/websocket_api.py. The route owns the socket receive loop and the Petals inference session; the per-message generation body lives in ChatService.generate_stream (pollen/features/chat/chat_service.py), which yields frames the route serializes and sends.
-- HTTP generate one-shot: /api/v1/generate in pollen/features/chat/http_api.py, used by the mobile client and by the IRC and Matrix bots. Still on Flask.
-- Status and sources: /api/status and /api/curated-sources, now served by the FastAPI process. The Flask implementations remain in pollen/features/status/status_api.py but no longer receive traffic.
-- Images: /api/generate-image, /api/image-status and /static/generated/ now served by the FastAPI process; generation itself lives in pollen/infrastructure/image_gen.py.
-- Bots: irc_bot.py and matrix_bot.py are standalone top-level processes. They do not create their own Petals client; they call /api/v1/generate over HTTP on port 5000 directly, bypassing the proxy.
+- Web chat streaming: browser WebSocket to /api/v2/generate, served by an async route in fastapi_app.py. It owns the socket receive loop and the Petals inference session; the per-message generation body lives in ChatService.generate_stream (pollen/features/chat/chat_service.py), which yields frames the route serializes and sends. See Streaming below for how the blocking generator is bridged to the async socket.
+- HTTP generate one-shot: /api/v1/generate in fastapi_app.py, via ChatService.generate_once. Used by the mobile client and by the IRC and Matrix bots.
+- Status and sources: /api/status and /api/curated-sources, served by fastapi_app.py.
+- Images: /api/generate-image, /api/image-status and /static/generated/ served by fastapi_app.py; generation itself lives in pollen/infrastructure/image_gen.py.
+- Main page and static assets: the pre-rendered index page and /static/* served by fastapi_app.py; the template is rendered once at startup.
+- Bots: irc_bot.py and matrix_bot.py are standalone top-level processes. They do not create their own Petals client; they call /api/v1/generate over HTTP on the FastAPI process (127.0.0.1:5001) directly, bypassing the proxy.
 
 ### The RAG pipeline
 
 1. Retrieval, in pollen/features/chat/retrieval/: rag_search.py together with rag_common, rag_curated, rag_ranking, rag_content, rag_fetchers and rag_retrieval. Together they fetch curated domains and sources, rank and filter results, fetch and score page text, and provide web search plus a direct Wikipedia fetch.
 2. Prompt building, in pollen/features/chat/rag_pipeline.py: classifies the query, decides whether search is needed, fits the prompt to the token budget, formats context, and builds the augmented prompt.
-3. Inference, in pollen/features/chat/chat_service.py: ChatService.generate_stream runs the Petals generation loop for the streaming path, applying stop sequences, a minimum-length floor and citation filtering. http_api.py still runs its own one-shot generation.
+3. Inference, in pollen/features/chat/chat_service.py: ChatService.generate_stream runs the Petals generation loop for the streaming path (stop sequences, a minimum-length floor and citation filtering); ChatService.generate_once serves the one-shot path.
 4. Post-processing, in pollen/features/chat/postprocessing.py: a chain of cleanup steps orchestrated by strip_filler_phrases that removes filler, hedging, malformed URLs, and duplicate content, and normalizes multi-section formatting. pollen/features/chat/utils.py re-exports these plus model loading from pollen/infrastructure/model_loader.py.
 
 ### State
 
 There is no database. All state is in-process or in the browser. Conversation history lives only in the browser for the page's lifetime; the server does not log or store queries.
 
-The one exception is generation telemetry. speed_tracker state (pollen/infrastructure/speed_tracker.py) is per-process, so the Flask worker publishes its rolling tokens-per-second average and its start time to an atomically written state file that the FastAPI process reads when serving /api/status. See the deployment section below.
+The one exception is generation telemetry. speed_tracker (pollen/infrastructure/speed_tracker.py) records a rolling tokens-per-second average and the process start time, which /api/status reports. It still writes an atomically-updated JSON state file (a temporary file renamed into place, so a reader never sees a partial write). With a single process the writer and reader are now the same process, so the file hop is vestigial; it is retained because it is harmless and keeps working if a second reader process is ever reintroduced.
+
+## Streaming
+
+The /api/v2/generate WebSocket streams tokens as they are produced. ChatService.generate_stream is a synchronous, blocking generator -- each step waits on the swarm, roughly three hundred milliseconds per token. To keep the async event loop free, the route runs that generator in a threadpool executor and bridges each yielded frame onto an asyncio.Queue via call_soon_threadsafe; the async handler awaits the queue and sends each frame with websocket.send_text as it arrives. Frames therefore stream incrementally rather than being collected and flushed at the end.
+
+The core generation logic (ChatService.generate_stream) is framework-agnostic and unchanged from the earlier flask_sock implementation; only the transport shell differs. One constraint governs the bridge: Petals InferenceSession holds no internal locks, so exactly one thread may drive a session at a time. The route satisfies this by running one generator per connection and awaiting each turn before receiving the next message, so a session is never touched by two threads concurrently.
 
 ## Package layout
 
-The code is organized by layer and by feature under a single pollen/ package. The four process entry points stay at the repository root, outside the package, so the deployment targets are unchanged: gunicorn serves app:app and uvicorn serves fastapi_app:app, both from the repository root.
+The code is organized by layer and by feature under a single pollen/ package. The process entry points stay at the repository root, outside the package.
 
     pollen/
       core/              config.py, data_structures.py, extensions.py
@@ -44,95 +51,65 @@ The code is organized by layer and by feature under a single pollen/ package. Th
         images/          image_api.py
         status/          status_api.py
 
-    (repository root -- entry points, intentionally not in the package)
-      app.py             Flask WSGI app (gunicorn app:app): builds the app,
-                         registers the feature blueprints, binds the WebSocket
-      fastapi_app.py     model-free FastAPI app (uvicorn fastapi_app:app)
+    (repository root -- entry points)
+      fastapi_app.py     the FastAPI app (uvicorn fastapi_app:app): loads the model
+                         and serves every route
       irc_bot.py         IRC bot process
       matrix_bot.py      Matrix bot process
       views.py           index page rendering
+      app.py             retired Flask WSGI app, kept in git for reference/rollback
 
-core holds configuration, shared dataclasses, and shared Flask extensions. infrastructure holds the things treated as external services: Petals model loading, image generation, and telemetry. features holds the vertical slices: chat, with its retrieval subpackage for the RAG providers, plus images and status. Each feature owns its own routes and logic. The entry points stay at the top level so the gunicorn (app:app) and uvicorn (fastapi_app:app) targets did not change when the modules moved.
+core holds configuration, shared dataclasses, and shared extensions. infrastructure holds the things treated as external services: Petals model loading, image generation, and telemetry. features holds the vertical slices: chat, with its retrieval subpackage for the RAG providers, plus images and status.
 
-### How the circular import was broken
-
-The old app-to-routes circular import is gone. The three plain HTTP route modules -- image_api, status_api and http_api -- each expose a Flask blueprint, and app.py registers them with app.register_blueprint; none of them import back from app. The two that need the models mapping read it from current_app.config at request time rather than importing a module global.
-
-The WebSocket route is the exception, because a flask_sock handler runs without a Flask application context and so cannot read current_app. Two pieces handle it. First, the shared flask_sock Sock instance now lives in pollen/core/extensions.py, so both app.py and websocket_api.py import it from there instead of from app. Second, websocket_api exposes a set_models() injector: app.py imports websocket_api so its @sock.route registers on the Sock, calls set_models(models) to hand it the mapping once at startup, then binds the Sock to the app with sock.init_app(app). Nothing back-imports app, so load order is no longer fragile.
+A note on the feature route modules: the Flask blueprint and flask_sock modules under features (http_api.py, websocket_api.py, status_api.py, image_api.py) date from the Flask deployment. Their route handlers are no longer the serving path -- fastapi_app.py now serves those routes directly -- but the service and helper logic they were built around (ChatService, rag_pipeline, postprocessing, utils, image_gen) is shared and live. The blueprint modules are retained, alongside app.py, as the rollback path.
 
 ## Deployment
 
-Pollen currently runs as two processes behind Caddy, which routes by path matcher.
+Pollen runs as a single process behind Caddy.
 
-    Caddy (443)
-      /api/status            -> FastAPI  127.0.0.1:5001
-      /api/curated-sources   -> FastAPI  127.0.0.1:5001
-      /api/generate-image    -> FastAPI  127.0.0.1:5001
-      /api/image-status      -> FastAPI  127.0.0.1:5001
-      /static/generated/*    -> FastAPI  127.0.0.1:5001
-      everything else        -> Flask    127.0.0.1:5000
+    Caddy (443)  ->  FastAPI  127.0.0.1:5001   (everything)
 
-Flask and gunicorn on port 5000 serve the chat UI, the /api/v2/generate WebSocket, /api/v1/generate, and all remaining static assets. Only the /static/generated/ prefix moves to FastAPI; every other /static path stays on Flask.
+The FastAPI process (uvicorn, pollen-fastapi.service) loads the Petals model client at startup. The load is gated behind an environment variable so the same code can also run model-free: POLLEN_LOAD_MODEL=1 triggers it, alongside the offline Hugging Face environment (HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1, and HF_HOME/TRANSFORMERS_CACHE pointing at the local cache) so weights come from disk rather than the network, CUDA_VISIBLE_DEVICES empty to keep the client on CPU, and DHT_INITIAL_PEERS naming the local bootstrap peer. The client holds the token embeddings, LM head and tokenizer locally (~1.5 GB resident); only the transformer blocks run remotely on the swarm. Startup therefore takes tens of seconds rather than the sub-second of the earlier model-free process.
 
-The FastAPI process (uvicorn, systemd unit pollen-fastapi.service, bound to loopback only) loads no model. It never imports app.py, so it never triggers load_models, and it starts in under a second rather than the minute the Flask worker needs.
+Caddy proxies all paths, including the /api/v2/generate WebSocket, to 127.0.0.1:5001; it upgrades WebSocket connections natively, so streaming needs no special configuration. 127.0.0.1 (not localhost) is used because uvicorn binds IPv4 only.
 
-Serving /api/status without a model required replacing the one thing that route used the model for. The Flask implementation reaches the Petals sequence manager through the loaded model purely to obtain two values: a DHT handle and the list of block UIDs. Neither needs model weights. The FastAPI implementation instead builds its own client-mode hivemind DHT from the configured initial peers, and derives the block UIDs by naming convention, joining the DHT prefix (the model repository name with dots replaced by hyphens) to each block index. The block count comes from the model config read out of the Hugging Face cache offline. From there it calls the same get_remote_module_infos and compute_spans as the Flask route, so the response is byte-identical.
+A health watchdog (watchdog.sh, run every five minutes by cron) checks /api/status on the FastAPI process and restarts pollen-fastapi if it is unresponsive; it also independently checks the local Petals block server (petals-server) and the DHT.
 
-Because speed_tracker keeps its samples and start time in memory, per process, the FastAPI process cannot see the Flask worker's numbers directly. The writer publishes them to a small JSON state file, written to a temporary file and renamed into place so a reader can never observe a partial write. If the file is missing or unreadable the reader falls back to its own in-process values rather than failing.
+The /api/status route reaches the swarm to report coverage. It could read the loaded model's sequence manager, but the model-free implementation is retained: it builds its own client-mode hivemind DHT from the configured initial peers and derives the block UIDs by naming convention (the DHT prefix -- the model repository name with dots replaced by hyphens -- joined to each block index), reading the block count from the model config in the offline cache. From there it calls the same get_remote_module_infos and compute_spans, so the response is unchanged.
 
 ## Known limitations
 
-- Two processes now serve one site, so shared state (currently only generation telemetry) has to be passed through a file. Any further shared state will need a real mechanism.
-- pollen/features/status/status_api.py and pollen/features/images/image_api.py still exist in the Flask app and duplicate logic now served by FastAPI. They are dormant but not yet removed.
-- http_api.py still calls inference and RAG functions directly rather than through ChatService, so the one-shot path has no service layer.
-- Synchronous Flask and WSGI holds a worker thread for the full duration of each generation.
+- The Flask blueprint and flask_sock modules (http_api.py, websocket_api.py, status_api.py, image_api.py) and app.py are retained but unused by the running server; they are the rollback path, not live code.
+- A single process holds the model and serves all traffic, so a restart (deploy or crash) drops chat for the tens of seconds the model takes to reload. There is one model client and no hot standby.
+- Generation is synchronous per session (Petals exposes no async API); the threadpool bridge keeps the event loop free but does not raise the swarm-bounded concurrency ceiling. See Streaming.
+- No swap is configured on the host. The ~1.5 GB model client sits comfortably within RAM, but there is no cushion for a spike.
 
 ## Design principles
 
-The load-bearing rule: route handlers do not call the model or the RAG pipeline directly. They call a service such as ChatService that orchestrates retrieval, prompt building, inference, and post-processing. This is the seam where future concerns such as authentication and usage limits are enforced.
+The load-bearing rule: route handlers do not call the model or the RAG pipeline directly. They call a service such as ChatService that orchestrates retrieval, prompt building, inference, and post-processing. This is the seam where future concerns such as authentication and usage limits would be enforced.
 
 The inference engine is treated as an external service behind an interface, which reflects how Petals already runs as a separate cluster.
 
-## Migration status
+## Migration history
 
-The migration to the layered, feature-based structure is complete. The remaining phases are product-contingent.
+The backend reached its current shape through a sequence of completed steps, each of which left the application running:
 
-- Phase 1, complete: module splits and a service layer. The old utils module was split into model_loader and postprocessing, the old rag_search into six responsibility modules, and the streaming generation body moved into ChatService.
-- Phase 2, complete as scoped: the non-streaming paths that can run without a model migrated to FastAPI. /api/status, /api/curated-sources, /api/generate-image, /api/image-status and /static/generated/ now serve from the model-free FastAPI process, with Caddy routing by path. /api/v1/generate deliberately stays on Flask -- it is the one non-streaming route that genuinely needs the loaded model -- see below.
-- Package restructure, complete: all modules moved into the pollen/ package (core, infrastructure, features) and the app-to-routes circular import was removed. The entry points, the deployment targets and the systemd units did not change.
-- Phase 3, investigated and deliberately deferred: migrating the streaming WebSocket path to FastAPI. See the reasoning below.
-- Phase 4: add accounts, usage, and billing, with a persistence layer behind repository interfaces. Contingent on product direction, and in direct tension with the no-server-persistence privacy property; any such work must preserve or explicitly document a change to it.
-- Phase 5: retire Flask and cut over. The bot entry points must continue to work.
+- Focused modules and a service layer: the old utils module was split into model_loader and postprocessing, the old rag_search into six responsibility modules, and the streaming generation body was extracted into ChatService.
+- The pollen/ package: all modules moved into a layered, feature-based package (core, infrastructure, features), and the old app-to-routes circular import was removed -- blueprints for the plain HTTP routes plus a shared extensions module for the flask_sock instance, with the models mapping injected at startup.
+- Non-streaming routes to FastAPI: status, curated-sources, the image routes, the main page and static assets moved to a then-model-free FastAPI process, byte-for-byte compatible with the Flask responses.
+- Streaming and one-shot to FastAPI: the /api/v2/generate WebSocket (via the threadpool bridge above) and /api/v1/generate (via ChatService.generate_once) moved to FastAPI, which now loads the model.
+- Flask retired: gunicorn / app:app (the petals-chat unit) was stopped, disabled and removed; the bots were repointed to the FastAPI process in the same cutover; the watchdog was repointed to guard it. The Flask code remains in git for rollback.
 
-### Why Phase 3 is deferred
+The result is a single framework and a single serving process.
 
-This was investigated rather than skipped, and the conclusion was that the cost is high and the benefit is close to zero.
+On the streaming migration specifically: it was done carefully because the streaming loop is the most delicate code in the system -- stop sequences, the minimum-length floor, the multibyte retry guard, the fallback-prefix hold and the streaming delta arithmetic all interact. The generation logic was reused unchanged; only the transport was rewritten, and the one-thread-per-session invariant was preserved (see Streaming). Because Petals is synchronous and every session already serializes through a single internal event-loop thread per process, the move did not make generation asynchronous -- a generation is roughly ninety-nine percent I/O wait -- so the benefit is a single framework, not higher concurrency. Revisit the concurrency ceiling only if demand ever exceeds the swarm's capacity, or if Petals gains a genuine async API.
 
-Petals exposes no public async API. Both model.generate and session.step are synchronous, and all network I/O is already funnelled through a single internal asyncio loop thread (RemoteExpertWorker), which every session shares within a process. Moving the WebSocket path to FastAPI would therefore not make generation asynchronous. It would still have to run in a threadpool, and it would still serialize through that same Petals event loop.
-
-The threads generation occupies are also cheap. Measured, a generation is roughly ninety-nine percent I/O wait and one percent CPU: about three hundred milliseconds per token waiting on the swarm, against a few milliseconds of post-processing. Occupying a thread for that is not the bottleneck.
-
-Against that, the streaming loop is the most delicate code in the system: stop sequences, the minimum-length floor, the multibyte retry guard, the fallback-prefix hold and the streaming delta arithmetic all interact. Rewriting it would risk real regressions in order to raise a concurrency ceiling of roughly ten simultaneous generations that the swarm's own throughput already makes moot.
-
-One further constraint for whoever revisits this: InferenceSession holds no internal locks, so any threadpool bridge must guarantee exactly one thread per session. Sharing a session across threads is unsafe.
-
-Revisit if concurrency demand ever exceeds the swarm's capacity, or if Petals gains a genuine async API.
-
-### Why /api/v1/generate has not moved
-
-It is the only non-streaming route that genuinely requires the loaded model object. It calls model.generate directly on the Petals client, which holds the token embeddings, the LM head and the tokenizer locally; only the transformer blocks run remotely on the swarm. So, unlike /api/status -- which reaches the swarm by building a bare client-mode DHT and needs no model at all -- generation cannot be done from the DHT alone.
-
-Serving it from the FastAPI process would therefore mean loading a second full Petals client there, roughly 1.5 GB of resident memory on a host that has little free RAM and no swap, for zero functional benefit: it is a one-shot request/response route with nothing to gain from async.
-
-It would also require repointing the IRC and Matrix bots, which POST to it directly on port 5000, bypassing Caddy entirely. Moving the route in the proxy would not move their traffic, and moving it in the application would silently break them.
-
-So it should move only as part of a future full Flask retirement, when the bots are repointed in the same cutover. Phase 2 is marked done as scoped rather than loading a redundant model client to check a box.
+Accounts, usage and billing (a persistence layer, auth, usage limits) were considered and deliberately not built: they are in direct tension with the no-server-persistence privacy property below, and are contingent on product direction. The service-layer seam (ChatService) is where such concerns would attach if that ever changes.
 
 ## Notes for contributors
 
-- The code lives in the pollen/ package, organized by layer (core, infrastructure) and feature (features/chat with its retrieval subpackage, features/images, features/status). The four entry points -- app.py, fastapi_app.py, irc_bot.py, matrix_bot.py -- and views.py stay at the repository root; gunicorn imports app:app and uvicorn imports fastapi_app:app from there.
+- The code lives in the pollen/ package, organized by layer (core, infrastructure) and feature (features/chat with its retrieval subpackage, features/images, features/status). The entry points -- fastapi_app.py, irc_bot.py, matrix_bot.py -- and views.py stay at the repository root; uvicorn imports fastapi_app:app. app.py is the retired Flask entry point, kept for rollback.
 - The inference engine (the Petals cluster) is external. The application depends on it through an interface, not through direct calls scattered across handlers.
 - Web search depends on a residential node; when it is offline, retrieval falls back to Wikipedia only.
 - No query logging or conversation persistence on the server is a deliberate privacy property. Any future persistence must preserve or explicitly document changes to it.
-- Two processes now serve the site. When changing a route, check the Caddyfile to see which process actually receives it.
-- The bots bypass the proxy and talk to port 5000 directly. Any change to /api/v1/generate must account for them.
+- One process serves everything on 127.0.0.1:5001, behind Caddy. The bots talk to /api/v1/generate on that process directly; any change to /api/v1/generate must account for them.

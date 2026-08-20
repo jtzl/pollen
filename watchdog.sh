@@ -26,20 +26,22 @@ record_failure() {
 }
 
 # --- 1) Check Chat API ---
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:5000/api/status 2>/dev/null)
+# Post-cutover: the model-holder is the FastAPI process (pollen-fastapi) on 5001;
+# Flask/petals-chat is retired. Check FastAPI's /api/status and restart it if down.
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:5001/api/status 2>/dev/null)
 
 if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ] 2>/dev/null; then
     log "OK: Chat API responded with HTTP $HTTP_CODE"
 else
-    log "FAIL: Chat API unresponsive (HTTP $HTTP_CODE). Restarting ONLY petals-chat (petals-server is checked separately)..."
-    sudo systemctl restart petals-chat
-    PETALS_CHAT_EXIT=$?
-    if [ $PETALS_CHAT_EXIT -eq 0 ]; then
-        log "RESTART: petals-chat restarted successfully"
-        record_failure "petals-chat" "Chat API returned HTTP $HTTP_CODE" "Restarted petals-chat (success)"
+    log "FAIL: Chat API unresponsive (HTTP $HTTP_CODE). Restarting ONLY pollen-fastapi (petals-server is checked separately)..."
+    sudo systemctl restart pollen-fastapi
+    FASTAPI_EXIT=$?
+    if [ $FASTAPI_EXIT -eq 0 ]; then
+        log "RESTART: pollen-fastapi restarted successfully"
+        record_failure "pollen-fastapi" "Chat API returned HTTP $HTTP_CODE" "Restarted pollen-fastapi (success)"
     else
-        log "ERROR: Restart failed (petals-chat=$PETALS_CHAT_EXIT)"
-        record_failure "petals-chat" "Chat API returned HTTP $HTTP_CODE" "Restart attempted but failed (petals-chat=$PETALS_CHAT_EXIT)"
+        log "ERROR: Restart failed (pollen-fastapi=$FASTAPI_EXIT)"
+        record_failure "pollen-fastapi" "Chat API returned HTTP $HTTP_CODE" "Restart attempted but failed (pollen-fastapi=$FASTAPI_EXIT)"
     fi
 fi
 
@@ -91,7 +93,7 @@ else
         log "OK: petals-server active, within startup grace (uptime=${SERVER_UPTIME}s < ${SERVER_STARTUP_GRACE}s)"
     else
         # Read the EC2 (A10G) peer's current block count from the chat API
-        EC2_BLOCKS=$(curl -s --max-time 6 http://localhost:5000/api/status 2>/dev/null | python3 -c "
+        EC2_BLOCKS=$(curl -s --max-time 6 http://localhost:5001/api/status 2>/dev/null | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)

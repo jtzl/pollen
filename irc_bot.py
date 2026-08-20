@@ -32,7 +32,7 @@ IRC_CHANNEL = os.getenv("IRC_CHANNEL", "#chat")
 IRC_NICKNAME = os.getenv("IRC_NICKNAME", "PollenBot")
 IRC_ENABLED = os.getenv("IRC_ENABLED", "true").lower() == "true"
 IRC_SSL = os.getenv("IRC_SSL", "true").lower() == "true"
-API_BASE = os.getenv("IRC_API_BASE", "http://127.0.0.1:5000")
+API_BASE = os.getenv("IRC_API_BASE", "http://127.0.0.1:5001")
 IMAGE_ENABLED = os.getenv("IMAGE_ENABLED", "false").lower() == "true"
 SERVER_BASE_URL = os.getenv("SERVER_BASE_URL", "http://54.166.153.249:5000")
 MAX_MSG_LEN = 300

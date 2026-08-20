@@ -27,7 +27,7 @@ MATRIX_ACCESS_TOKEN = os.getenv("MATRIX_ACCESS_TOKEN", "")
 MATRIX_ROOM_ID = os.getenv("MATRIX_ROOM_ID", "")
 MATRIX_ENABLED = os.getenv("MATRIX_ENABLED", "false").lower() == "true"
 BOT_DISPLAY_NAME = os.getenv("MATRIX_DISPLAY_NAME", "PollenBot")
-API_BASE = os.getenv("MATRIX_API_BASE", "http://127.0.0.1:5000")
+API_BASE = os.getenv("MATRIX_API_BASE", "http://127.0.0.1:5001")
 MAX_MSG_LEN = 2000
 
 logging.basicConfig(

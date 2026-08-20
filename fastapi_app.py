@@ -1,15 +1,19 @@
 """Model-free FastAPI app serving Pollen's non-inference routes.
 
-Serves ONLY:
+Serves:
+  GET  /                           (main page; byte-identical to Flask via views.render_index)
+  GET  /static/{path}              (general assets: chat.js, style.css, marked.min.js, logo, ...)
   GET  /api/curated-sources        (ported from status_api.api_curated_sources)
   POST /api/generate-image         (ported from image_api.api_generate_image)
   GET  /api/image-status           (ported from image_api.api_image_status)
   GET  /static/generated/{file}    (ported from image_api.serve_generated_image)
 
-Deliberately does NOT import app.py, utils, model_loader, or config, so it
-never triggers load_models() and starts in well under a second. image_gen is
-safe: it is a leaf module that calls load_dotenv() itself and lazy-loads any
-diffusion pipeline only on first use.
+Deliberately does NOT import app.py, utils, or model_loader, so it never
+triggers load_models() and starts in well under a second. It does import
+views (and therefore pollen.core.config + image_gen) to pre-render the main
+page, but that path loads no model. image_gen is safe: it is a leaf module
+that calls load_dotenv() itself and lazy-loads any diffusion pipeline only on
+first use.
 
 Response bodies are rendered to match Flask's jsonify byte-for-byte
 (json.dumps with sort_keys=True and compact separators, plus a trailing newline).
@@ -20,8 +24,9 @@ import os
 import time
 import urllib.request
 
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from pollen.infrastructure import image_gen  # leaf module: loads .env itself, no model load
@@ -29,6 +34,31 @@ from pollen.infrastructure import image_gen  # leaf module: loads .env itself, n
 log = logging.getLogger("fastapi_app")
 
 app = FastAPI(title="Pollen non-inference API", docs_url=None, redoc_url=None)
+
+# ---------------------------------------------------------------------------
+# Main page "/" -- rendered ONCE at startup, byte-identical to Flask's.
+# app.py serves index_html = views.render_index(app) where app is a Flask
+# instance; render_index only uses pollen.core.config + image_gen for its
+# template context, so we render it here with a throwaway bare Flask instance
+# purely for its Jinja environment (same tojson filter, autoescape and
+# context Flask uses). This imports no model and never calls load_models().
+# ---------------------------------------------------------------------------
+import views  # noqa: E402  (model-free: pulls pollen.core.config + image_gen only)
+from flask import Flask as _RenderFlask  # noqa: E402
+
+_INDEX_HTML = views.render_index(_RenderFlask(__name__))
+
+
+@app.get("/")
+def main_page():
+    # Same no-cache headers Flask's main_page sets.
+    return HTMLResponse(
+        content=_INDEX_HTML,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 class FlaskJSONResponse(JSONResponse):
@@ -452,3 +482,199 @@ def api_status():
     except Exception as e:
         log.warning("Status API error: %s", e, exc_info=True)
         return FlaskJSONResponse({"ok": False, "error": str(e)})
+
+
+# ===========================================================================
+# STAGE 3 (DORMANT until POLLEN_LOAD_MODEL=1): model-holding streaming + one-shot.
+#
+# Everything below is INERT on the current pollen-fastapi.service, which does
+# NOT set POLLEN_LOAD_MODEL. In that case no model is loaded (petals/torch are
+# never even imported here), and the two routes below return a clear error if
+# called. Only the future model-holding systemd unit sets POLLEN_LOAD_MODEL=1
+# -- together with HF_HUB_OFFLINE=1 / TRANSFORMERS_OFFLINE=1 / CUDA_VISIBLE_DEVICES=
+# / DHT_INITIAL_PEERS=..., exactly like petals-chat.service -- to activate them.
+# ===========================================================================
+import asyncio
+from traceback import format_exc
+
+# Gated model load, mirroring app.py's `models = utils.load_models()` at import.
+if os.getenv("POLLEN_LOAD_MODEL") == "1":
+    from pollen.infrastructure.model_loader import load_models
+    from pollen.core import config as _gen_config
+
+    log.info("POLLEN_LOAD_MODEL=1 -> loading Petals model client (takes ~seconds)...")
+    app.state.models = load_models()
+    app.state.gen_config = _gen_config
+    log.info("model client ready: keys=%s", list(app.state.models.keys()))
+else:
+    app.state.models = None
+    app.state.gen_config = None
+    log.info("POLLEN_LOAD_MODEL not set -> model-free mode (v1/v2 routes dormant)")
+
+
+def _merge_request_args(query, form, body):
+    """Mirror Flask get_typed_arg precedence: request.values (query+form) win
+    over the JSON body. Returns a plain dict for ChatService's *_arg helpers."""
+    merged = {}
+    if isinstance(body, dict):
+        merged.update(body)
+    if form:
+        merged.update(form)
+    if query:
+        merged.update(query)
+    return merged
+
+
+@app.websocket("/api/v2/generate")
+async def ws_api_generate(websocket: WebSocket):
+    """Async port of pollen.features.chat.websocket_api.ws_api_generate.
+
+    Reproduces the same open/receive/session/ChatService/frame flow, driving the
+    blocking ChatService.generate_stream through a threadpool bridge (validated in
+    scratch_ws_bridge_test.py) so the event loop is never blocked. Frames are sent
+    with json.dumps(frame) -- byte-identical to Flask's ws.send(json.dumps(frame)).
+    """
+    # Same imports Flask's websocket_api uses: config module (for STEP_TIMEOUT and
+    # to pass to ChatService, exactly as Flask does), ChatService, MissingBlocksError.
+    from pollen.core import config
+    from pollen.features.chat.chat_service import ChatService
+    from petals.client.routing.sequence_manager import MissingBlocksError
+
+    await websocket.accept()
+    models = app.state.models
+    try:
+        # Flask: json.loads(ws.receive(timeout=config.STEP_TIMEOUT))
+        request = json.loads(await asyncio.wait_for(websocket.receive_text(), config.STEP_TIMEOUT))
+        assert request["type"] == "open_inference_session"
+        model_name = request["model"]
+        max_length = request["max_length"]
+
+        # Dormant-safe guard (not in Flask; required so the model-free process can
+        # host this route inertly). Never fires once POLLEN_LOAD_MODEL=1 loads models.
+        if models is None:
+            await websocket.send_text(json.dumps(
+                {"ok": False, "error": "model not loaded (POLLEN_LOAD_MODEL not set on this process)"}))
+            await websocket.close()
+            return
+
+        model, tokenizer, backend_config = models[model_name]
+
+        # Same-origin / license check, mirroring Flask exactly:
+        #   if not backend_config.public_api and
+        #      http_request.origin != f"{http_request.scheme}://{http_request.host}": raise ValueError
+        # Starlette's ws scheme is "ws"/"wss"; map to Flask's http/https.
+        if not backend_config.public_api:
+            scheme = "https" if websocket.url.scheme == "wss" else "http"
+            host = websocket.headers.get("host")
+            if websocket.headers.get("origin") != f"{scheme}://{host}":
+                raise ValueError(f"We do not provide public API for {model_name} due to license restrictions")
+
+        loop = asyncio.get_running_loop()
+        with model.inference_session(max_length=max_length) as session:
+            await websocket.send_text(json.dumps({"ok": True}))
+            service = ChatService(model, tokenizer, backend_config, config)
+
+            while True:  # multi-turn: one iteration per client "generate" message
+                # Flask: json.loads(ws.receive(timeout=config.STEP_TIMEOUT))
+                request = json.loads(await asyncio.wait_for(websocket.receive_text(), config.STEP_TIMEOUT))
+                assert request["type"] == "generate"
+
+                # Threadpool bridge (validated in scratch_ws_bridge_test.py): run the
+                # blocking generator in a worker thread; stream each frame as produced.
+                queue: asyncio.Queue = asyncio.Queue()
+                sentinel = object()
+                gen_error = {"hit": False}
+
+                def produce(req):
+                    try:
+                        for frame in service.generate_stream(req, session):
+                            loop.call_soon_threadsafe(queue.put_nowait, frame)
+                    except MissingBlocksError:
+                        gen_error["hit"] = True
+                        loop.call_soon_threadsafe(queue.put_nowait, {
+                            "ok": False, "code": "cluster_unavailable", "traceback": format_exc()})
+                    except Exception:
+                        gen_error["hit"] = True
+                        loop.call_soon_threadsafe(queue.put_nowait, {"ok": False, "traceback": format_exc()})
+                    finally:
+                        loop.call_soon_threadsafe(queue.put_nowait, sentinel)
+
+                producer = loop.run_in_executor(None, produce, request)
+                try:
+                    while True:
+                        frame = await queue.get()
+                        if frame is sentinel:
+                            break
+                        await websocket.send_text(json.dumps(frame))
+                finally:
+                    await producer
+
+                # Flask lets a generation error (MissingBlocksError / Exception)
+                # propagate out of the multi-turn loop and terminate the connection.
+                # The error frame was already sent above; now end the session to match.
+                if gen_error["hit"]:
+                    break
+
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        log.warning("ws.generate failed", exc_info=True)
+        try:
+            await websocket.send_text(json.dumps({"ok": False, "traceback": format_exc()}))
+        except Exception:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+@app.post("/api/v1/generate")
+async def api_v1_generate(request: Request):
+    """Async port of pollen.features.chat.http_api.http_api_generate, via
+    ChatService.generate_once. Gated: 503 if no model loaded on this process."""
+    from pollen.features.chat.chat_service import ChatService
+
+    models = app.state.models
+    config = app.state.gen_config
+    if models is None or config is None:
+        return FlaskJSONResponse(
+            {"ok": False, "error": "model not loaded (POLLEN_LOAD_MODEL not set on this process)"},
+            status_code=503)
+
+    # Merge args the way Flask's get_typed_arg reads them (values over json body).
+    query = dict(request.query_params)
+    body = None
+    form = {}
+    ctype = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if ctype == "application/json" or ctype.endswith("+json"):
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+    else:
+        try:
+            form = dict(await request.form())
+        except Exception:
+            form = {}
+    req = _merge_request_args(query, form, body)
+
+    model_name = req.get("model") or config.MODEL_REPO
+    model, tokenizer, backend_config = models[model_name]
+    service = ChatService(model, tokenizer, backend_config, config)
+    # generate_once is blocking (model.generate); keep the event loop free.
+    result = await run_in_threadpool(service.generate_once, req)
+    return FlaskJSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# General static assets (chat.js, style.css, marked.min.js, logo.svg, ...).
+# Mounted LAST, on purpose: Starlette matches routes in registration order, so
+# the explicit /static/generated/{filename} route defined above is matched
+# FIRST and is not shadowed by this catch-all mount. Normal /static/* paths
+# (which are not /static/generated/<single-segment>) fall through to here and
+# are served from the same static/ directory Flask uses.
+# ---------------------------------------------------------------------------
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
