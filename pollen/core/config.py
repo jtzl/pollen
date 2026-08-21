@@ -89,3 +89,74 @@ else:
     TORCH_DTYPE = torch.float32
 
 STEP_TIMEOUT = 5 * 60
+
+
+# ==================== RAG Authority Ranking ====================
+# Source-authority signal for the RAG result ranker. Each result's authority
+# delta (below) is ADDED to its existing keyword-relevance score to decide
+# ORDER only -- it never changes how many results are fetched or survive, and
+# the pure relevance score still gates whether an off-topic result is dropped.
+# These are plain constants: JT can edit freely without touching code.
+#
+# Weighting intent: a boost of +8 lets an authoritative source beat a weak
+# source at similar relevance, and overcome a keyword-stuffing gap of up to
+# ~8 relevance points -- but a vastly-more-relevant weak source still wins
+# (e.g. weak rel=21 beats authoritative rel=5 -> 5+8=13). Authority tilts
+# ties and near-ties; it does not completely override relevance.
+
+# Score delta for each authority tier (higher = ranked earlier).
+AUTHORITY_TIERS = {
+    "high": 8,      # gov / edu / academic / journals / major news  -> boost
+    "neutral": 0,   # anything not otherwise classified             -> no change
+    "farm": -8,     # content-farm / SEO / scraper domains          -> penalty
+}
+
+# High-authority domain SUFFIXES. Matched with endswith against the result's
+# registered domain, so ".gov" also covers cdc.gov, nih.gov, ".edu" covers any
+# university, etc. Add government / academic TLDs here.
+AUTHORITY_HIGH_TLDS = (
+    ".gov", ".mil", ".int", ".edu",
+    ".gov.uk", ".ac.uk", ".nhs.uk",
+    ".edu.au", ".gov.au", ".edu.cn", ".gov.ca", ".gc.ca",
+    ".europa.eu",
+)
+
+# Academic hosts that carry ".ac." mid-domain rather than a TLD above
+# (e.g. cam.ac.jp, u-tokyo.ac.jp). Matched as a substring of the domain.
+AUTHORITY_HIGH_SUBSTRINGS = (".ac.",)
+
+# Explicit high-authority domains: journals / scientific publishers, primary
+# research/reference, and major news wires & papers of record. Matched exact
+# or as a parent domain (endswith "." + entry).
+AUTHORITY_HIGH_DOMAINS = (
+    # journals / publishers / primary science & reference
+    "nature.com", "science.org", "sciencemag.org", "sciencedirect.com",
+    "ncbi.nlm.nih.gov", "pubmed.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov",
+    "nih.gov", "cdc.gov", "who.int", "nejm.org", "thelancet.com", "bmj.com",
+    "cell.com", "pnas.org", "jamanetwork.com", "springer.com",
+    "springernature.com", "wiley.com", "onlinelibrary.wiley.com",
+    "tandfonline.com", "sagepub.com", "acs.org", "aps.org", "ieee.org",
+    "arxiv.org", "plos.org", "frontiersin.org", "mdpi.com", "nasa.gov",
+    "noaa.gov", "usgs.gov", "energy.gov", "nist.gov", "esa.int", "iaea.org",
+    # major news wires & papers of record
+    "reuters.com", "apnews.com", "bbc.com", "bbc.co.uk", "npr.org",
+    "nytimes.com", "washingtonpost.com", "theguardian.com", "wsj.com",
+    "economist.com", "ft.com", "bloomberg.com", "pbs.org",
+)
+
+# Known content-farm / SEO / scraper domains -> penalty. Seeded conservatively
+# from observed offenders; JT extends this or uses AUTHORITY_DENY below.
+AUTHORITY_FARM_DOMAINS = (
+    "worldmetrics.org",
+)
+
+# JT overrides (empty by default) -------------------------------------------
+# Domains to ALWAYS boost (niche-authoritative sources the tiers miss).
+AUTHORITY_ALLOW = ()
+# Domains to ALWAYS penalize (specific junk to sink to the bottom of its tier).
+AUTHORITY_DENY = ()
+# Deltas applied by the allow/deny lists. ALLOW outranks the tier boosts; DENY
+# is a strong penalty that sinks a result within its tier (it does NOT drop the
+# result -- use BLOCKED_SOURCES in rag_ranking.py for a hard drop).
+AUTHORITY_ALLOW_BOOST = 12
+AUTHORITY_DENY_PENALTY = -100

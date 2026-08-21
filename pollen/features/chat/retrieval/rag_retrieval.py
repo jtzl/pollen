@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse as _urlparse
 
 from pollen.features.chat.retrieval.rag_common import *
-from pollen.features.chat.retrieval.rag_ranking import is_blocked_domain, _source_rank, _extract_keywords, _relevance_score
+from pollen.features.chat.retrieval.rag_ranking import is_blocked_domain, _source_rank, _extract_keywords, _relevance_score, _authority_score
 from pollen.features.chat.retrieval.rag_content import _enrich_results, _clean_search_title
 from pollen.features.chat.retrieval.rag_fetchers import node_search, fetch_wikipedia
 
@@ -276,8 +276,17 @@ def search(query, max_results=None):
             # and can surface when DuckDuckGo missed them.
             if sr == 2 and r.get("url", "") in wiki_direct_urls:
                 sr = 1
-            scored.append((rs, sr, i, r))
-        scored.sort(key=lambda t: (t[1], -t[0], t[2]))
+            # Authority-aware ORDER: add an authority delta (gov/edu/journal/
+            # news boost, content-farm penalty) to the base relevance score.
+            # This reorders results WITHIN their source_rank tier. The pure
+            # relevance score `rs` still gates survival (the rs<=0 drop above)
+            # and RAG_MAX_RESULTS is unchanged -- only ORDER changes.
+            auth = _authority_score(r.get("url", ""))
+            combined = rs + auth
+            scored.append((rs, sr, i, r, combined))
+        # source_rank tier stays PRIMARY; within a tier, sort by combined
+        # relevance+authority (desc), then original insertion order.
+        scored.sort(key=lambda t: (t[1], -t[4], t[2]))
         # Light per-domain cap so a single domain (e.g. Wikipedia) can't be the
         # only source: allow at most _MAX_PER_DOMAIN results from any one domain
         # while still filling up to max_results. Preserves sorted order, so the
@@ -297,9 +306,9 @@ def search(query, max_results=None):
 
         log.info("RAG search complete: query=%r, %d relevant results (%d dropped) in %.1fs",
                  query, len(results), dropped, elapsed)
-        for i, (rs, sr, _idx, r) in enumerate(scored):
-            log.info("  result[%d] relevance=%d source_rank=%d: %s - %s",
-                     i, rs, sr, r.get("title", "")[:60], r.get("url", ""))
+        for i, (rs, sr, _idx, r, comb) in enumerate(scored):
+            log.info("  result[%d] relevance=%d authority=%+d combined=%d source_rank=%d: %s - %s",
+                     i, rs, comb - rs, comb, sr, r.get("title", "")[:60], r.get("url", ""))
         if not results:
             log.warning("RAG search returned 0 relevant results for query=%r (variants=%r, dropped=%d)",
                         query, variants, dropped)

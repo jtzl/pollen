@@ -193,6 +193,120 @@ def _clean_search_title(title):
     return t[:200]
 
 
+def is_wikipedia(url):
+    """True for a Wikipedia article URL in any language: <lang>.wikipedia.org/wiki/<Title>.
+    (www.wikipedia.org and bare wikipedia.org are accepted too; the /wiki/ path
+    is what marks an article.)"""
+    try:
+        p = _urlparse(url)
+    except Exception:
+        return False
+    host = (p.netloc or "").lower().split(":")[0]
+    if host.startswith("www."):
+        host = host[4:]
+    if not (host == "wikipedia.org" or host.endswith(".wikipedia.org")):
+        return False
+    return "/wiki/" in (p.path or "")
+
+
+def _wikipedia_lang_and_title(url):
+    """Parse (lang, title) from a Wikipedia /wiki/<Title> URL.
+
+    lang is the subdomain label (e.g. 'en', 'de', 'simple'), defaulting to 'en'
+    when there is no language subdomain. title is URL-decoded. Returns
+    (None, None) when the URL has no /wiki/<Title> segment."""
+    import urllib.parse
+    try:
+        p = _urlparse(url)
+    except Exception:
+        return (None, None)
+    host = (p.netloc or "").lower().split(":")[0]
+    if host.startswith("www."):
+        host = host[4:]
+    parts = host.split(".")
+    # <lang>.wikipedia.org -> take the leftmost label; wikipedia.org -> 'en'
+    if len(parts) >= 3 and parts[-2:] == ["wikipedia", "org"]:
+        lang = parts[0] or "en"
+    else:
+        lang = "en"
+    path = p.path or ""
+    marker = "/wiki/"
+    idx = path.find(marker)
+    if idx < 0:
+        return (None, None)
+    raw_title = path[idx + len(marker):]
+    # Drop any trailing anchor/query remnants that slipped into the path tail.
+    raw_title = raw_title.split("#", 1)[0].split("?", 1)[0]
+    if not raw_title:
+        return (None, None)
+    title = urllib.parse.unquote(raw_title)
+    return (lang, title)
+
+
+def _fetch_wikipedia_extract(url, max_chars=None, timeout=None):
+    """Fetch clean plain-text article prose for a Wikipedia URL via the MediaWiki
+    action API (prop=extracts&explaintext=1), bypassing the rendered-page scrape
+    (which leaks hatnotes, maintenance banners and reflink markup).
+
+    Returns (text, title). Returns ('', '') on ANY failure -- missing page,
+    redirect with no extract, network/timeout, bad JSON -- so the caller can
+    fall back to the generic scrape and never be worse than today."""
+    import urllib.parse
+    if max_chars is None:
+        max_chars = RAG_FETCH_CHARS
+    if timeout is None:
+        timeout = RAG_FETCH_TIMEOUT
+    lang, title = _wikipedia_lang_and_title(url)
+    if not title:
+        return ("", "")
+    try:
+        api = "https://%s.wikipedia.org/w/api.php" % lang
+        qs = urllib.parse.urlencode({
+            "action": "query",
+            "format": "json",
+            "prop": "extracts",
+            "explaintext": 1,
+            "exlimit": 1,
+            "redirects": 1,      # follow redirects to the canonical article
+            "titles": title,
+        })
+        req = urllib.request.Request(
+            api + "?" + qs,
+            headers={"User-Agent": _FETCH_UA, "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        pages = (data.get("query") or {}).get("pages") or {}
+        extract = ""
+        page_title = ""
+        for page in pages.values():
+            if not isinstance(page, dict):
+                continue
+            # pageid == -1 or a "missing" key means the article does not exist.
+            if "missing" in page or page.get("pageid", -1) == -1:
+                continue
+            ex = page.get("extract") or ""
+            if ex.strip():
+                extract = ex
+                page_title = page.get("title") or ""
+                break
+        if not extract.strip():
+            return ("", "")
+        # Collapse the blank-line runs the API leaves between sections.
+        extract = _re.sub(r"\n{3,}", "\n\n", extract).strip()
+        if len(extract) > max_chars:
+            extract = extract[:max_chars].rsplit(" ", 1)[0] + "…"
+        if not page_title:
+            page_title = title.replace("_", " ")
+        # Keep the title style consistent with the generic scrape path.
+        if not page_title.endswith("Wikipedia"):
+            page_title = page_title + " - Wikipedia"
+        return (extract, page_title)
+    except Exception as e:
+        log.debug("RAG wikipedia API extract failed %s: %s", url, e)
+        return ("", "")
+
+
 def _fetch_page_text(url, query, max_chars=None, timeout=None):
     """Fetch URL, extract up to max_chars of query-relevant paragraphs. Returns '' on failure."""
     import requests
@@ -200,6 +314,13 @@ def _fetch_page_text(url, query, max_chars=None, timeout=None):
         max_chars = RAG_FETCH_CHARS
     if timeout is None:
         timeout = RAG_FETCH_TIMEOUT
+    # Wikipedia: pull clean article prose from the MediaWiki API instead of
+    # scraping the rendered page. On any miss, fall through to the generic
+    # extraction below so this is never worse than today.
+    if is_wikipedia(url):
+        wiki_text, wiki_title = _fetch_wikipedia_extract(url, max_chars, timeout)
+        if wiki_text:
+            return wiki_text, wiki_title
     if _is_skip_fetch_host(url):
         log.debug("RAG fetch skipped (blocklisted host): %s", url)
         return ("", "")

@@ -16,6 +16,17 @@ from urllib.parse import urlparse as _urlparse
 
 from pollen.features.chat.retrieval.rag_common import *
 from pollen.features.chat.retrieval.rag_curated import fetch_curated_domains
+from pollen.core.config import (
+    AUTHORITY_TIERS,
+    AUTHORITY_ALLOW,
+    AUTHORITY_DENY,
+    AUTHORITY_ALLOW_BOOST,
+    AUTHORITY_DENY_PENALTY,
+    AUTHORITY_HIGH_TLDS,
+    AUTHORITY_HIGH_SUBSTRINGS,
+    AUTHORITY_HIGH_DOMAINS,
+    AUTHORITY_FARM_DOMAINS,
+)
 
 
 # Sources to drop entirely from RAG results before they reach Mixtral.
@@ -111,3 +122,45 @@ def _relevance_score(keywords, title, snippet):
         score += title_l.count(kw) * 2
         score += snip_l.count(kw)
     return score
+
+
+def _authority_score(url):
+    """Authority delta added to a result's relevance score to reorder results
+    by source quality. Positive lifts a source, negative sinks it. Order of
+    checks (first match wins): JT deny -> JT allow -> high-authority explicit
+    domains -> high-authority TLD/academic patterns -> content-farm penalty ->
+    neutral 0. Domain matching is exact or parent-domain (endswith "." + entry),
+    mirroring _source_rank so subdomains are covered."""
+    d = _domain_of(url)
+    if not d:
+        return 0
+
+    def _hit(dom, entries):
+        for e in entries:
+            e = e.lstrip(".")
+            if dom == e or dom.endswith("." + e):
+                return True
+        return False
+
+    # JT explicit overrides first.
+    if _hit(d, AUTHORITY_DENY):
+        return AUTHORITY_DENY_PENALTY
+    if _hit(d, AUTHORITY_ALLOW):
+        return AUTHORITY_ALLOW_BOOST
+
+    # High-authority: explicit journal/news/reference domains.
+    if _hit(d, AUTHORITY_HIGH_DOMAINS):
+        return AUTHORITY_TIERS["high"]
+    # High-authority: gov/edu/academic TLD suffixes and ".ac." academic hosts.
+    for tld in AUTHORITY_HIGH_TLDS:
+        if d.endswith(tld):
+            return AUTHORITY_TIERS["high"]
+    for sub in AUTHORITY_HIGH_SUBSTRINGS:
+        if sub in d:
+            return AUTHORITY_TIERS["high"]
+
+    # Known content-farm / SEO / scraper domains.
+    if _hit(d, AUTHORITY_FARM_DOMAINS):
+        return AUTHORITY_TIERS["farm"]
+
+    return AUTHORITY_TIERS["neutral"]
