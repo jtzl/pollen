@@ -145,7 +145,7 @@ class ChatService:
                 if rag_sources:
                     _cited = _filter_cited_sources(_hard_final, rag_sources)
                     if _cited:
-                        hard_stop_msg["rag_sources"] = [{"title": r["title"], "url": r["url"]} for r in _cited]
+                        hard_stop_msg["rag_sources"] = [{"title": r["title"], "url": r["url"], "authority": r.get("authority", 0)} for r in _cited]
                     rag_sources = []
                 yield hard_stop_msg
                 break
@@ -257,7 +257,7 @@ class ChatService:
                 if stop and rag_sources:
                     _cited = _filter_cited_sources(filtered_all, rag_sources)
                     if _cited:
-                        step_msg["rag_sources"] = [{"title": r["title"], "url": r["url"]} for r in _cited]
+                        step_msg["rag_sources"] = [{"title": r["title"], "url": r["url"], "authority": r.get("authority", 0)} for r in _cited]
                     rag_sources = []
                 yield step_msg
 
@@ -347,7 +347,7 @@ class ChatService:
 
             resp = {"ok": True, "outputs": outputs}
             if rag_results:
-                resp["rag_sources"] = [{"title": r["title"], "url": r["url"]} for r in rag_results]
+                resp["rag_sources"] = [{"title": r["title"], "url": r["url"], "authority": r.get("authority", 0)} for r in rag_results]
             return resp
         except MissingBlocksError:
             logger.warning("generate cluster_unavailable:", exc_info=True)

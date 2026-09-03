@@ -9,6 +9,9 @@
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
 * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; }
 
+/* (The former light/dark override block was removed — Pollen now has a single
+   MONOCHROME theme, defined in one block at the END of this file.) */
+
 /* === Sidebar === */
 .sidebar-closed { transform: translateX(-100%); }
 .sidebar-open { transform: translateX(0); }
@@ -319,6 +322,30 @@
   background: rgba(167, 139, 250, 0.15);
   text-decoration: none;
 }
+
+/* === Source-quality (authority) trust color-coding === */
+/* Pills: a subtle colored left-border + tinted domain text; layout stays put
+   (border width is unchanged, only its left color varies). trust-mid keeps the
+   default neutral look. */
+.rag-source-link.trust-high {
+  border-left-color: rgba(52, 211, 153, 0.55);   /* emerald */
+}
+.rag-source-link.trust-high .rag-source-domain {
+  color: #34d399;
+}
+.rag-source-link.trust-low {
+  border-left-color: rgba(248, 113, 113, 0.55);   /* muted red */
+}
+.rag-source-link.trust-low .rag-source-domain {
+  color: #f87171;
+}
+.rag-source-link.trust-mid { /* neutral / unknown — default styling */ }
+
+/* Inline [N] markers: recolor the superscript by trust; mid stays purple. */
+.rag-inline-cite.trust-high { color: #34d399; }
+.rag-inline-cite.trust-high:hover { color: #6ee7b7; background: rgba(52, 211, 153, 0.15); }
+.rag-inline-cite.trust-low { color: #f87171; }
+.rag-inline-cite.trust-low:hover { color: #fca5a5; background: rgba(248, 113, 113, 0.15); }
 
 /* === Network Node Cards === */
 .node-card {
@@ -711,3 +738,134 @@ body.chat-empty footer {
 body.chat-empty > div > footer.flex-shrink-0 {
   padding-bottom: 10vh;
 }
+
+/* ============================================================
+   === MONOCHROME THEME (single theme — ChatGPT-style) ===
+   The ONLY theme: no dark mode, no toggle, no localStorage.
+   Palette: canvas #ffffff · sidebar #f9f9f9 · lines #ececec ·
+   ink #0d0d0d · muted #5d5d5d · faint #8f8f8f · hover #f0f0f0 ·
+   field #f4f4f4 / border #e3e3e3. Nothing lighter than #8f8f8f on
+   white. Green/red/yellow are kept ONLY as functional status
+   (source-quality citations, node up/down, coverage, vram, votes).
+   Placed last so it overrides component defaults above; !important
+   is used where it competes with Tailwind CDN utilities.
+   ============================================================ */
+
+/* Typography — Public Sans app-wide */
+body, input, textarea, button, select, h1, h2, h3, h4 {
+  font-family: 'Public Sans', Helvetica, Arial, sans-serif;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar-thumb { background: #d9d9d9; }
+::-webkit-scrollbar-thumb:hover { background: #bcbcbc; }
+* { scrollbar-color: #d9d9d9 transparent; }
+
+/* Structural surfaces */
+body { background: #ffffff !important; color: #0d0d0d; }
+#sidebar { background: #f9f9f9 !important; border-color: #ececec !important; }
+header, footer, #image-panel { background: #ffffff !important; border-color: #ececec !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+body.chat-empty footer { background: #ffffff !important; }
+
+/* Dividers / borders -> solid #ececec */
+.border-black\/10, .border-black\/5, .border-gray-200 { border-color: #ececec !important; }
+
+/* Hover surfaces -> #f0f0f0 (icon buttons + sidebar rows) */
+.hover\:bg-black\/5:hover { background-color: #f0f0f0 !important; }
+.chat-history-item { color: #5d5d5d; }
+.chat-history-item:hover { background: #f0f0f0 !important; }
+.chat-history-item.active { background: #ececec !important; color: #0d0d0d !important; }
+
+/* Text roles (nothing lighter than #8f8f8f on white) */
+.text-gray-800 { color: #0d0d0d !important; }
+.text-gray-700 { color: #3d3d3d !important; }
+.text-gray-600 { color: #5d5d5d !important; }
+.text-gray-500 { color: #8f8f8f !important; }
+.text-gray-400 { color: #8f8f8f !important; }
+
+/* Links + brand-accent text -> ink / muted (removes purple) */
+.text-accent-400, .text-accent-500 { color: #5d5d5d !important; }
+a.text-accent-400 { color: #0d0d0d !important; }
+.msg-content a { color: #0d0d0d; }
+.msg-content a:hover { color: #5d5d5d; }
+.petals-link { color: #5d5d5d !important; text-decoration: underline; text-underline-offset: 2px; }
+::selection { background: rgba(13,13,13,0.12); }
+
+/* Header status dot -> mono */
+#status-dot.bg-green-500 { background: #22c55e !important; }
+#status-dot.bg-yellow-500 { background: #8f8f8f !important; }
+#status-dot.bg-red-500 { background: #0d0d0d !important; }
+
+/* Model badge "8x7B" */
+.model-badge { background: #f0f0f0 !important; border: 1px solid #e3e3e3 !important; color: #5d5d5d !important; border-radius: 999px !important; padding: 1px 8px !important; }
+
+/* Composer field */
+.input-container { background: #f4f4f4 !important; border: 1px solid #e3e3e3 !important; border-radius: 26px !important; box-shadow: none !important; }
+.input-container:focus-within { border-color: #0d0d0d !important; box-shadow: none !important; }
+#message-input, #image-prompt { background: transparent !important; color: #0d0d0d !important; }
+
+/* Send button -> circular black */
+#send-btn { background: #0d0d0d !important; color: #ffffff !important; width: 34px; height: 34px; border-radius: 9999px !important; display: flex !important; align-items: center; justify-content: center; }
+#send-btn:hover:not(:disabled) { background: #3d3d3d !important; }
+#send-btn:disabled { background: #d9d9d9 !important; opacity: 1 !important; }
+#image-gen-btn { background: #0d0d0d !important; color: #ffffff !important; }
+#image-gen-btn:hover { background: #3d3d3d !important; }
+
+/* New Chat button */
+.new-chat-btn { background: #ffffff !important; border: 1px solid #e3e3e3 !important; border-radius: 12px !important; color: #0d0d0d !important; }
+.new-chat-btn:hover { background: #f0f0f0 !important; }
+
+/* Avatars -> mono */
+.avatar-user { background: #0d0d0d; color: #ffffff; }
+.avatar-assistant { background: #ececec; color: #0d0d0d; }
+
+/* Message bubbles (ChatGPT style) */
+.msg-user { background: #f4f4f4; color: #0d0d0d; border: 1px solid #ececec; }
+.msg-assistant { background: #f4f4f4; color: #0d0d0d; border: 1px solid #ececec; }
+
+/* Welcome heading */
+#welcome-screen h2 { font-size: 30px !important; font-weight: 600 !important; letter-spacing: -0.4px; color: #0d0d0d !important; }
+
+/* Focus rings -> mono */
+.focus\:border-accent-500\/50:focus,
+.focus-within\:border-accent-500\/50:focus-within { border-color: #0d0d0d !important; }
+
+/* Markdown content */
+.msg-content strong { color: #0d0d0d; }
+.msg-content pre { background: #f4f4f4; border-color: #ececec; }
+.msg-content code { background: #f0f0f0; }
+.msg-content blockquote { color: #5d5d5d; border-left-color: #d9d9d9; }
+.msg-content hr { border-color: #ececec; }
+.msg-content th, .msg-content td { border-color: #ececec; }
+.msg-content th { background: #f4f4f4; }
+.typing-dots .dot { background: #8f8f8f; }
+
+/* Code copy button */
+.code-copy-btn { background: #f0f0f0; border-color: #e3e3e3; color: #5d5d5d; }
+.code-copy-btn:hover { background: #e3e3e3; color: #0d0d0d; }
+
+/* RAG source pills (trust green/red kept via their own .trust-* rules above) */
+.rag-source-link { background: #f9f9f9; border-color: #ececec; }
+.rag-source-link:hover { background: #f0f0f0; border-color: #e3e3e3; }
+.rag-source-title { color: #0d0d0d; }
+.rag-source-index { color: #0d0d0d; background: #f0f0f0; }
+.rag-inline-cite { color: #0d0d0d; }
+.rag-inline-cite:hover { color: #5d5d5d; background: #f0f0f0; }
+
+/* Network status + curated sources chrome (status greens/reds untouched) */
+.peer-item, .source-card, .node-card { background: #f9f9f9 !important; border-color: #ececec !important; }
+.peer-item:hover, .source-card:hover, .node-card:hover { background: #f0f0f0 !important; border-color: #e3e3e3 !important; }
+.node-card.offline { background: #f4f4f4 !important; }
+.peer-id, .src-domain, .src-vote, .node-info { color: #8f8f8f; }
+.src-title { color: #0d0d0d; }
+.peer-blocks { color: #5d5d5d; }
+.src-cat { color: #5d5d5d; background: #f0f0f0; }
+.src-net.neutral { background: #f0f0f0; color: #5d5d5d; }
+.src-group-header { border-bottom-color: #ececec; }
+.src-group-name { color: #5d5d5d; }
+.src-subgroup { border-left-color: #ececec; }
+.src-subgroup-name { color: #5d5d5d; }
+.node-hub-badge { color: #5d5d5d; background: #f0f0f0; border-color: #e3e3e3; }
+.vram-bar-track { background: #ececec; }
+.prompt-suggestion:hover { border-color: #d9d9d9; }
+/* === END MONOCHROME THEME === */

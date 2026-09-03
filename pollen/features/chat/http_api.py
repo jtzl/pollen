@@ -90,7 +90,7 @@ def http_api_generate():
 
         resp = {"ok": True, "outputs": outputs}
         if rag_results:
-            resp["rag_sources"] = [{"title": r["title"], "url": r["url"]} for r in rag_results]
+            resp["rag_sources"] = [{"title": r["title"], "url": r["url"], "authority": r.get("authority", 0)} for r in rag_results]
         return jsonify(resp)
     except MissingBlocksError:
         # Cluster has no node currently serving the requested blocks;

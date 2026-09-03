@@ -256,8 +256,10 @@ function linkifyCitations(html, sources) {
     var idx = parseInt(num) - 1;
     if (idx < 0 || idx >= sources.length) return match;
     var s = sources[idx];
+    var _a = (typeof s.authority === 'number') ? s.authority : 0;
+    var _tc = _a > 0 ? 'trust-high' : (_a < 0 ? 'trust-low' : 'trust-mid');
     return '<a href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener noreferrer" ' +
-           'class="rag-inline-cite" title="' + escapeHtml(s.title || s.url) + '">[' + num + ']</a>';
+           'class="rag-inline-cite ' + _tc + '" title="' + escapeHtml(s.title || s.url) + '">[' + num + ']</a>';
   });
 }
 
@@ -291,7 +293,9 @@ function renderRagSources(sources, colEl) {
     link.href = s.url;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    link.className = 'rag-source-link';
+    var _a = (typeof s.authority === 'number') ? s.authority : 0;
+    var _tc = _a > 0 ? 'trust-high' : (_a < 0 ? 'trust-low' : 'trust-mid');
+    link.className = 'rag-source-link ' + _tc;
     var domain = '';
     try { domain = new URL(s.url).hostname.replace(/^www\./, ''); } catch(e) { domain = s.url; }
     var title = (s.title && s.title.trim()) ? s.title.trim() : (titleFromUrl(s.url) || domain);
@@ -319,21 +323,14 @@ function addMessage(role, content, time) {
   var row = document.createElement('div');
   row.className = 'message-row group flex gap-3 msg-animate ' + (isUser ? 'flex-row-reverse' : '');
 
-  var av = document.createElement('div');
-  av.className = isUser ? 'avatar-user' : 'avatar-assistant';
-  av.innerHTML = isUser
-    ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>'
-    : '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>';
-  row.appendChild(av);
-
   var col = document.createElement('div');
   col.className = 'flex flex-col max-w-[85%] sm:max-w-[75%] ' + (isUser ? 'items-end' : 'items-start');
 
   var bubble = document.createElement('div');
   bubble.className = 'relative px-4 py-3 rounded-2xl text-[13.5px] leading-relaxed ' +
     (isUser
-      ? 'bg-gradient-to-br from-blue-600 to-accent-600 text-white rounded-br-md'
-      : 'bg-panel-200 text-gray-200 border border-white/5 rounded-bl-md');
+      ? 'msg-user rounded-br-md'
+      : 'msg-assistant rounded-bl-md');
 
   var textEl = document.createElement('div');
   textEl.className = 'msg-content';
@@ -359,7 +356,7 @@ function addMessage(role, content, time) {
   actionsEl.className = 'msg-actions flex items-center gap-1';
 
   var copyBtn = document.createElement('button');
-  copyBtn.className = 'text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1.5 py-0.5 rounded hover:bg-white/5';
+  copyBtn.className = 'text-[10px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors px-1.5 py-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5';
   copyBtn.textContent = 'Copy';
   copyBtn.onclick = function() {
     var raw = textEl.innerText || textEl.textContent;
@@ -907,7 +904,7 @@ function renderNetworkStatus(data) {
         '<div class="vram-section">' +
           '<div class="vram-label">' +
             '<span class="text-gray-500">VRAM</span>' +
-            '<span class="text-gray-400">' + usedGB + ' / ' + totalGB + ' GB (' + pct + '%)</span>' +
+            '<span class="text-gray-600 dark:text-gray-400">' + usedGB + ' / ' + totalGB + ' GB (' + pct + '%)</span>' +
           '</div>' +
           '<div class="vram-bar-track">' +
             '<div class="vram-bar-fill ' + barLevel + '" style="width:' + pct + '%"></div>' +
@@ -921,7 +918,7 @@ function renderNetworkStatus(data) {
       '<div class="flex items-center justify-between mb-1.5">' +
         '<div class="flex items-center gap-2">' +
           '<span class="' + statusDotColor + '">&nbsp;</span>' +
-          '<span class="text-sm font-medium text-gray-200">' + escapeHtml(n.name) + '</span>' +
+          '<span class="text-sm font-medium text-gray-800 dark:text-gray-200">' + escapeHtml(n.name) + '</span>' +
           statusBadge +
           hubBadge +
         '</div>' +

@@ -282,6 +282,9 @@ def search(query, max_results=None):
             # relevance score `rs` still gates survival (the rs<=0 drop above)
             # and RAG_MAX_RESULTS is unchanged -- only ORDER changes.
             auth = _authority_score(r.get("url", ""))
+            # Retain the PURE authority delta on the source dict so it survives
+            # sorting and the downstream emit projections (frontend trust color).
+            r["authority"] = auth
             combined = rs + auth
             scored.append((rs, sr, i, r, combined))
         # source_rank tier stays PRIMARY; within a tier, sort by combined
