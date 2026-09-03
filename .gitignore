@@ -48,3 +48,6 @@ static/test_results.txt
 .inline_bak_name
 .old_aet
 *.output
+
+# Local-only operational skill / cheat-sheet (never commit or push)
+SKILL.md
