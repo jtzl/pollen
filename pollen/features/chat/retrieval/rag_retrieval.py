@@ -15,9 +15,25 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse as _urlparse
 
 from pollen.features.chat.retrieval.rag_common import *
-from pollen.features.chat.retrieval.rag_ranking import is_blocked_domain, _source_rank, _extract_keywords, _relevance_score, _authority_score
+from pollen.features.chat.retrieval.rag_ranking import is_blocked_domain, _source_rank, _extract_keywords, _relevance_score, _authority_score, _keyword_coverage
 from pollen.features.chat.retrieval.rag_content import _enrich_results, _clean_search_title
 from pollen.features.chat.retrieval.rag_fetchers import node_search, fetch_wikipedia
+
+# Topical-coverage gate: drop obvious off-topic single-incidental-keyword hits
+# that pure keyword-overlap otherwise lets through (e.g. "List" -> Latin-phrases
+# page, "Philadelphia" -> a TV-show clip). Tunable knobs.
+_MIN_CORE_MATCHES = 2         # require >= this many DISTINCT core keywords to match
+_MIN_TOPIC_COVERAGE = 0.15    # ...and >= this fraction of the query's core keywords
+_MIN_KEYWORDS_TO_GATE = 4     # only gate keyword-rich queries (don't over-prune short ones)
+
+# Append the "statistics data" search hint ONLY for genuinely statistical
+# queries (previously appended to every multi-word query, mangling e.g. an
+# art-gallery lookup into a stats search).
+_STATS_QUERY_RE = _re.compile(
+    r"\b(statistic|percentage|percent|how many|how much|number of|average|median|"
+    r"rate of|per capita|population|gdp|count of|data on|figures?|totals?)\b",
+    _re.IGNORECASE,
+)
 
 
 
@@ -95,7 +111,9 @@ def _reformulate_query(query):
     keywords = [w for w in lower if w not in _QUERY_STOPWORDS and len(w) > 1]
 
     if keywords and len(keywords) < len(lower):
-        variant_b = " ".join(keywords) + " statistics data"
+        variant_b = " ".join(keywords)
+        if _STATS_QUERY_RE.search(q):
+            variant_b = variant_b + " statistics data"
         if variant_b and variant_b.lower() != q.lower() and variant_b not in variants:
             variants.append(variant_b)
 
@@ -270,6 +288,17 @@ def search(query, max_results=None):
                 dropped += 1
                 log.info("RAG relevance drop score=0: %s - %s", r.get("title", "")[:60], r.get("url", ""))
                 continue
+            # Topical-coverage gate: on keyword-rich queries, drop results that
+            # match only an incidental keyword or two (not a meaningful share of
+            # the query's DISTINCT core terms). Conservative: only fires when the
+            # query itself has enough core keywords for coverage to be meaningful.
+            if len(keywords) >= _MIN_KEYWORDS_TO_GATE:
+                _nmatch, _cov = _keyword_coverage(keywords, r.get("title", ""), r.get("snippet", ""))
+                if _nmatch < _MIN_CORE_MATCHES or _cov < _MIN_TOPIC_COVERAGE:
+                    dropped += 1
+                    log.info("RAG topical drop (matches=%d cov=%.2f): %s - %s",
+                             _nmatch, _cov, r.get("title", "")[:60], r.get("url", ""))
+                    continue
             sr = _source_rank(r.get("url", ""))
             # Exempt directly-fetched Wikipedia results from the Wikipedia
             # deprioritization (rank 2 -> neutral 1) so they compete on relevance

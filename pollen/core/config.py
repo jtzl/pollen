@@ -26,6 +26,10 @@ MODEL_LICENSE_URL = os.getenv(
 )
 DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "500"))
 DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.6"))
+# Cooler temperature applied to FACTUAL queries for better grounding (opinion/
+# creative stay at DEFAULT_TEMPERATURE). Only overrides the default, never an
+# explicit caller-set temperature. See chat_service per-type override.
+FACTUAL_TEMPERATURE = float(os.getenv("FACTUAL_TEMPERATURE", "0.25"))
 
 # ==================== Network Settings ====================
 _peers_env = os.getenv("DHT_INITIAL_PEERS", "")

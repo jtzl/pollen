@@ -124,6 +124,23 @@ def _relevance_score(keywords, title, snippet):
     return score
 
 
+def _keyword_coverage(keywords, title, snippet):
+    """Topicality signal complementing _relevance_score's raw count: how many of
+    the query's DISTINCT core keywords appear in title+snippet, and that count as
+    a fraction of the total. Matching is WORD-START anchored (\\b + keyword): this
+    still catches plurals/inflections ('artist' -> 'artists') but avoids the
+    mid-word false positives that raw substring produces ('site' -> 'website',
+    which otherwise let off-topic pages pass). Returns (n_distinct_matches, ratio)."""
+    if not keywords:
+        return 0, 0.0
+    hay = ((title or "") + " " + (snippet or "")).lower()
+    n = 0
+    for kw in keywords:
+        if _re.search(r"\b" + _re.escape(kw), hay):
+            n += 1
+    return n, (n / len(keywords))
+
+
 def _authority_score(url):
     """Authority delta added to a result's relevance score to reorder results
     by source quality. Positive lifts a source, negative sinks it. Order of

@@ -76,6 +76,9 @@ class ChatService:
         The caller owns the inference_session and passes it in as `session`."""
         keep_urls = False  # set True below when the user asked for a URL
         rag_sources = []
+        # Effective sampling temperature; may drop to FACTUAL_TEMPERATURE for a
+        # factual query below (unless the caller set a non-default temperature).
+        _eff_temp = request.get("temperature")
 
         inputs = request.get("inputs") or None
         # Short-circuit greetings: return a canned reply.
@@ -94,6 +97,11 @@ class ChatService:
         if inputs is not None:
             user_msg = rag_pipeline.extract_user_message(inputs)
             keep_urls = is_url_query(user_msg)
+            # Per-type temperature: factual queries generate cooler for better
+            # grounding, unless the caller explicitly set a non-default value.
+            if (_eff_temp is None or _eff_temp == self.config.DEFAULT_TEMPERATURE) \
+                    and rag_pipeline.classify_query(user_msg) == "factual":
+                _eff_temp = self.config.FACTUAL_TEMPERATURE
             if rag_pipeline.needs_search(user_msg):
                 search_results = rag_search.search(user_msg)
                 if search_results:
@@ -153,7 +161,7 @@ class ChatService:
             outputs = self.model.generate(
                 inputs=inputs,
                 do_sample=request.get("do_sample", False),
-                temperature=request.get("temperature"),
+                temperature=_eff_temp,
                 top_k=request.get("top_k"),
                 top_p=request.get("top_p"),
                 repetition_penalty=request.get("repetition_penalty"),
@@ -287,6 +295,14 @@ class ChatService:
             inputs = self._typed_arg(request, "inputs", str)
             do_sample = self._typed_arg(request, "do_sample", int, False)
             temperature = self._typed_arg(request, "temperature", float)
+            # Per-type temperature: factual queries cooler unless the caller set
+            # a non-default temperature (respects an explicit slider choice).
+            if temperature is None or temperature == self.config.DEFAULT_TEMPERATURE:
+                try:
+                    if rag_pipeline.classify_query(rag_pipeline.extract_user_message(inputs or "")) == "factual":
+                        temperature = self.config.FACTUAL_TEMPERATURE
+                except Exception:
+                    pass
             top_k = self._typed_arg(request, "top_k", int)
             top_p = self._typed_arg(request, "top_p", float)
             repetition_penalty = self._typed_arg(request, "repetition_penalty", float)
