@@ -267,6 +267,44 @@ def _strip_trailing_fabricated_citation(text):
     return text[: m.start()].rstrip()
 
 
+# Spontaneous trailing self-confidence tail Mixtral sometimes appends AFTER the
+# answer -- a "Confidence: 90%" line and/or an adjacent paragraph opening
+# "I am 90% confident ...". No prompt source and no other stripper touches it.
+# Matched ONLY as a trailing block at the very end of the text (\Z), and only
+# when it begins on its own line (a newline boundary precedes it) -- so a
+# mid-sentence "confident" or a real answer sentence is never affected. The
+# block may not span a blank line into another paragraph: (?!\n\n) stops the
+# consumption at a paragraph break, so if substantive content follows, \Z fails
+# and nothing is stripped. A numeric percentage is required (bare "confident"
+# or "Confidence: high" never match).
+_TRAILING_CONFIDENCE_RE = _re.compile(
+    r"(?:(?<=[.!?])[ \t]*\n+|\n+)"                                  # block starts on its own line/para
+    r"(?:"
+    r"Confidence:[ \t]*\d+[ \t]*%?(?:(?!\n\n)[\s\S])*"              # (i) "Confidence: 90%" (+ adjacent tail)
+    r"|"
+    r"(?:I['’]?m|I[ \t]+am)[ \t]+\d+[ \t]*%?[ \t]+confident\b(?:(?!\n\n)[\s\S])*"  # (ii) "I am 90% confident ..."
+    r")"
+    r"\s*\Z",
+    _re.IGNORECASE,
+)
+
+
+def _strip_trailing_confidence_block(text):
+    """Remove a trailing self-confidence tail ("Confidence: N%" line and/or an
+    adjacent "I am N% confident ..." paragraph) that Mixtral spontaneously
+    appends after the answer, when it sits at the very END of the response with
+    nothing substantive after it. Trailing-anchored (\\Z) and gated to its own
+    line, so a mid-sentence "confident" or a real answer that continues after
+    the phrase is never touched. Additive: a no-op when the tail is absent.
+    """
+    if not text:
+        return text
+    m = _TRAILING_CONFIDENCE_RE.search(text)
+    if not m:
+        return text
+    return text[: m.start()].rstrip()
+
+
 # Inline source attributions the model writes alongside the real [N] citation
 # pills, e.g. "(Source: Owl Labs, 2019)" or the fused "[1, 5](Sources: ...)".
 # Real sources render as pills, so these parentheticals are redundant clutter.
@@ -795,6 +833,10 @@ def strip_filler_phrases(text, max_citations=None, is_final=True, keep_urls=Fals
         # runs on the websocket final_text and the http one-shot, never on a
         # streaming step where the citation may still be forming.
         text = _strip_trailing_fabricated_citation(text)
+        # Remove a trailing self-confidence tail ("Confidence: N%" and/or an
+        # "I am N% confident ..." paragraph) Mixtral spontaneously appends. No
+        # prompt source; trailing-anchored (\Z) so it never touches mid-text.
+        text = _strip_trailing_confidence_block(text)
         # Strip inline (Source: ...) attributions the model writes
         # alongside the real [N] pills (mid-sentence, so not caught by
         # the trailing strippers above). Preserves any fused [N] marker.

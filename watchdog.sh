@@ -70,6 +70,8 @@ fi
 #       leaving blocks 0-2 unserved for 10+ minutes.
 SERVER_MIN_BLOCKS=20        # restart if fewer than this many blocks being served
 SERVER_STARTUP_GRACE=720    # seconds to wait after service start before coverage check
+SERVER_LOW_STREAK=2         # require this many consecutive low readings before restarting
+LOWCOUNT_FILE="/tmp/pollen_watchdog_lowcount"   # persists the consecutive-low-reading counter
 SERVER_STATE=$(systemctl is-active petals-server 2>/dev/null)
 
 if [ "$SERVER_STATE" != "active" ]; then
@@ -99,7 +101,8 @@ try:
     d = json.load(sys.stdin)
     for n in d.get('nodes', []):
         if n.get('name') == 'EC2 (A10G)':
-            print(int(n.get('num_blocks') or 0))
+            nb = n.get('num_blocks')
+            print(int(nb) if nb else 'unknown')
             break
     else:
         print('unknown')
@@ -108,18 +111,29 @@ except Exception:
 " 2>/dev/null)
         if [ "$EC2_BLOCKS" = "unknown" ] || [ -z "$EC2_BLOCKS" ]; then
             log "WARN: could not determine EC2 peer block count from /api/status (skipping coverage check)"
+            rm -f "$LOWCOUNT_FILE"   # transient/None reading -> reset consecutive-low streak
         elif [ "$EC2_BLOCKS" -lt "$SERVER_MIN_BLOCKS" ] 2>/dev/null; then
-            log "FAIL: petals-server active but serving only $EC2_BLOCKS blocks (expected >= $SERVER_MIN_BLOCKS). Restarting..."
-            sudo systemctl restart petals-server
-            if [ $? -eq 0 ]; then
-                log "RESTART: petals-server restarted to recover block coverage"
-                record_failure "petals-server" "Active but serving only $EC2_BLOCKS blocks (expected >= $SERVER_MIN_BLOCKS)" "Restarted petals-server (success)"
+            # Require SERVER_LOW_STREAK consecutive low readings (~5 min apart) before
+            # restarting, so a single bad /api/status snapshot can't bounce the hub.
+            LOW_STREAK=$(( $(cat "$LOWCOUNT_FILE" 2>/dev/null || echo 0) + 1 ))
+            echo "$LOW_STREAK" > "$LOWCOUNT_FILE"
+            if [ "$LOW_STREAK" -ge "$SERVER_LOW_STREAK" ]; then
+                log "FAIL: petals-server active but serving only $EC2_BLOCKS blocks (expected >= $SERVER_MIN_BLOCKS) for $LOW_STREAK consecutive checks. Restarting..."
+                sudo systemctl restart petals-server
+                if [ $? -eq 0 ]; then
+                    log "RESTART: petals-server restarted to recover block coverage"
+                    record_failure "petals-server" "Active but serving only $EC2_BLOCKS blocks for $LOW_STREAK consecutive checks (expected >= $SERVER_MIN_BLOCKS)" "Restarted petals-server (success)"
+                else
+                    log "ERROR: Failed to restart petals-server for coverage"
+                    record_failure "petals-server" "Active but serving only $EC2_BLOCKS blocks" "Restart attempted but failed"
+                fi
+                rm -f "$LOWCOUNT_FILE"   # reset streak after acting
             else
-                log "ERROR: Failed to restart petals-server for coverage"
-                record_failure "petals-server" "Active but serving only $EC2_BLOCKS blocks" "Restart attempted but failed"
+                log "WARN: petals-server serving only $EC2_BLOCKS blocks (low reading $LOW_STREAK/$SERVER_LOW_STREAK) - deferring restart until confirmed"
             fi
         else
             log "OK: petals-server serving $EC2_BLOCKS blocks (uptime=${SERVER_UPTIME}s)"
+            rm -f "$LOWCOUNT_FILE"   # healthy reading -> reset consecutive-low streak
         fi
     fi
 fi
