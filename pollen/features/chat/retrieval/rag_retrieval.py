@@ -18,6 +18,7 @@ from pollen.features.chat.retrieval.rag_common import *
 from pollen.features.chat.retrieval.rag_ranking import is_blocked_domain, _source_rank, _extract_keywords, _relevance_score, _authority_score, _keyword_coverage
 from pollen.features.chat.retrieval.rag_content import _enrich_results, _clean_search_title
 from pollen.features.chat.retrieval.rag_fetchers import node_search, fetch_wikipedia
+from pollen.features.chat.retrieval import rag_rerank
 
 # Topical-coverage gate: drop obvious off-topic single-incidental-keyword hits
 # that pure keyword-overlap otherwise lets through (e.g. "List" -> Latin-phrases
@@ -314,6 +315,9 @@ def search(query, max_results=None):
             # Retain the PURE authority delta on the source dict so it survives
             # sorting and the downstream emit projections (frontend trust color).
             r["authority"] = auth
+            # Stash the final source_rank tier on the dict so the post-enrich
+            # cross-encoder reranker can sort WITHIN tier (curated-first preserved).
+            r["_source_rank"] = sr
             combined = rs + auth
             scored.append((rs, sr, i, r, combined))
         # source_rank tier stays PRIMARY; within a tier, sort by combined
@@ -349,8 +353,119 @@ def search(query, max_results=None):
         enrich_start = time.time()
         results = _enrich_results(results, query)
         log.info("RAG enrichment complete: %d results, %.1fs", len(results), time.time() - enrich_start)
+
+        # Cross-encoder rerank (CPU), WITHIN source_rank tier. Runs on the final
+        # enriched set (already per-domain-capped) so it scores the extracted
+        # page text (r["snippet"]) rather than the raw DDG snippet. NEVER fatal:
+        # if the reranker is unavailable or returns a wrong-length list, the
+        # existing order is left completely untouched.
+        try:
+            _docs = [(r.get("snippet") or r.get("title") or "") for r in results]
+            _rr = rag_rerank.rerank_scores(query, _docs)
+            if _rr and len(_rr) == len(results):
+                for _i, _r in enumerate(results):
+                    _r["_rerank"] = _rr[_i]
+                # source_rank stays PRIMARY (curated -1 first, preferred 0,
+                # neutral 1, deprioritized 2); rerank score is the secondary key
+                # (desc) so the cross-encoder only reorders WITHIN each tier.
+                results.sort(key=lambda r: (r.get("_source_rank", 1), -r.get("_rerank", 0.0)))
+                log.info("RAG rerank applied within-tier to %d results", len(results))
+            else:
+                log.debug("RAG rerank skipped (unavailable or length mismatch: %d scores for %d results)",
+                          len(_rr) if _rr else 0, len(results))
+        except Exception as _rerr:
+            log.debug("RAG rerank pass failed (%s); keeping existing order", _rerr)
+
         return results
 
     except Exception as e:
         log.error("RAG search failed for query=%r: %s (response will proceed without search)", query, e)
         return []
+
+
+# ==================== Bounded reranker-triggered re-search ====================
+# One extra search at most, ZERO extra LLM calls. If the initial result set is
+# weak (empty, or the best cross-encoder score < RERANK_SUFFICIENCY_THRESHOLD),
+# run ONE simplified re-search and keep whichever set has the higher top rerank
+# score -- so a failed re-search can never make things worse. Never raises.
+RERANK_SUFFICIENCY_THRESHOLD = 1.0  # good sets score ~9+, off-topic negative; ~1.0 catches genuinely weak sets
+
+# Structural / constraint words to strip when simplifying a query to its core
+# topical nouns for the re-search (distinct from the existing 2 variants, which
+# only strip stopwords). Dropping these turns e.g. "list a website in
+# philadelphia ... not owned by a bigger company ... contact information" into
+# "philadelphia abstract art artist".
+_REFINE_DROP_WORDS = frozenset({
+    "list", "lists", "website", "websites", "site", "sites", "located", "location",
+    "related", "owned", "bigger", "larger", "company", "companies", "corporation",
+    "featuring", "feature", "single", "contact", "information", "info", "details",
+    "not", "without", "only", "named", "specific", "particular", "various",
+    "certain", "given", "must", "should", "need", "page", "pages",
+})
+
+
+def _top_rerank(results):
+    """Best cross-encoder score attached by search()'s rerank pass, or None."""
+    scores = [r.get("_rerank") for r in (results or []) if r.get("_rerank") is not None]
+    return max(scores) if scores else None
+
+
+def _simplify_query(query):
+    """Reduce a query to its core topical nouns (drop structural/constraint
+    words). Returns '' if it can't build a distinct, non-empty simplification."""
+    kws = _extract_keywords(query or "")
+    core = [k for k in kws if k not in _REFINE_DROP_WORDS] or kws
+    return " ".join(core[:6])
+
+
+def search_with_refine(query, max_results=None):
+    """search() plus a BOUNDED, reranker-triggered single re-search.
+
+    Runs the normal pipeline once; if the set is weak (empty or top rerank below
+    RERANK_SUFFICIENCY_THRESHOLD), runs ONE simplified re-search and returns
+    whichever set has the higher top rerank. At most one extra search, no extra
+    LLM calls, never loops. Returns the original results on ANY error.
+    """
+    try:
+        results = search(query, max_results=max_results)
+    except Exception as e:
+        log.warning("search_with_refine: initial search failed (%s)", e)
+        return []
+    try:
+        top0 = _top_rerank(results)
+        weak = (not results) or (top0 is None) or (top0 < RERANK_SUFFICIENCY_THRESHOLD)
+        if not weak:
+            log.info("search_with_refine: sufficient (top_rerank=%.2f >= %.2f); no re-search",
+                     top0, RERANK_SUFFICIENCY_THRESHOLD)
+            return results
+
+        reformed = _simplify_query(query)
+        if not reformed or reformed.lower() == (query or "").strip().lower():
+            log.info("search_with_refine: weak (top=%s) but no distinct reformulation; keeping original",
+                     ("%.2f" % top0) if top0 is not None else "None")
+            return results
+
+        log.info("search_with_refine: weak (top=%s < %.2f); re-searching with %r",
+                 ("%.2f" % top0) if top0 is not None else "None", RERANK_SUFFICIENCY_THRESHOLD, reformed)
+        try:
+            results2 = search(reformed, max_results=max_results)
+        except Exception as e:
+            log.warning("search_with_refine: re-search failed (%s); keeping original", e)
+            return results
+        if not results2:
+            log.info("search_with_refine: re-search returned nothing; keeping original")
+            return results
+
+        top1 = _top_rerank(results2)
+        s0 = top0 if top0 is not None else float("-inf")
+        s1 = top1 if top1 is not None else float("-inf")
+        if s1 > s0:
+            log.info("search_with_refine: kept RE-SEARCH set (top %.2f > %.2f)", s1, s0)
+            return results2
+        log.info("search_with_refine: kept ORIGINAL set (re-search top %s <= %s)",
+                 ("%.2f" % top1) if top1 is not None else "None",
+                 ("%.2f" % top0) if top0 is not None else "None")
+        return results
+    except Exception as e:
+        log.warning("search_with_refine: refine logic failed (%s); returning original results", e)
+        return results
