@@ -87,7 +87,7 @@ def node_search(query, max_results):
     them unchanged. Returns [] on any error/timeout/nonzero exit/empty output.
     """
     try:
-        remote = "~/pollen-search-env/bin/python3 ~/pollen_search.py " + shlex.quote(query)
+        remote = "~/pollen-search-env/bin/python3 ~/pollen_search.py " + shlex.quote(query) + " " + str(int(max_results))
         cmd = [
             "ssh", "-p", "31333",
             "-o", "BatchMode=yes",

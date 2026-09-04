@@ -27,6 +27,12 @@ _MIN_CORE_MATCHES = 2         # require >= this many DISTINCT core keywords to m
 _MIN_TOPIC_COVERAGE = 0.15    # ...and >= this fraction of the query's core keywords
 _MIN_KEYWORDS_TO_GATE = 4     # only gate keyword-rich queries (don't over-prune short ones)
 
+# Two-stage selection: pull a bigger candidate pool from the DDG search
+# (per_variant derives from THIS, not max_results), then snippet-rerank to
+# SELECT the best max_results within-tier BEFORE the expensive enrich, so enrich
+# cost stays flat (still only ~max_results pages fetched). Tunable.
+RAG_CANDIDATE_POOL = 20
+
 # Append the "statistics data" search hint ONLY for genuinely statistical
 # queries (previously appended to every multi-word query, mangling e.g. an
 # art-gallery lookup into a stats search).
@@ -158,7 +164,7 @@ def search(query, max_results=None):
                 query = query.replace(_tok, " ")
             query = query.strip()
         variants = _reformulate_query(query)
-        per_variant = max(3, -(-max_results // max(1, len(variants))))  # ceil div
+        per_variant = max(3, -(-RAG_CANDIDATE_POOL // max(1, len(variants))))  # ceil div: pull a bigger pool for the reranker to select from
         log.info("RAG search starting: query=%r, %d variants=%r, filter=%r, max_results=%d, per_variant=%d",
                  query, len(variants), variants, source_filter.strip(), max_results, per_variant)
 
@@ -320,9 +326,30 @@ def search(query, max_results=None):
             r["_source_rank"] = sr
             combined = rs + auth
             scored.append((rs, sr, i, r, combined))
-        # source_rank tier stays PRIMARY; within a tier, sort by combined
-        # relevance+authority (desc), then original insertion order.
-        scored.sort(key=lambda t: (t[1], -t[4], t[2]))
+        # Snippet-rerank SELECTION (stage 1 of 2): score each candidate on its
+        # (title + raw snippet) with the cross-encoder so the per-domain cap below
+        # keeps the best-by-semantic-relevance WITHIN each source_rank tier, not
+        # just best-by-keyword. Runs pre-enrich on cheap snippet text over the
+        # bigger RAG_CANDIDATE_POOL. Fail-safe: if the reranker is unavailable or
+        # returns a wrong-length list, fall back to the existing combined sort.
+        _sel_ok = False
+        try:
+            _sel_docs = [((t[3].get("title") or "") + " " + (t[3].get("snippet") or "")) for t in scored]
+            _sel_scores = rag_rerank.rerank_scores(query, _sel_docs)
+            if _sel_scores and len(_sel_scores) == len(scored):
+                for _t, _s in zip(scored, _sel_scores):
+                    _t[3]["_snippet_rerank"] = _s
+                _sel_ok = True
+        except Exception as _selerr:
+            log.debug("RAG snippet-rerank selection failed (%s); using keyword sort", _selerr)
+        if _sel_ok:
+            # source_rank tier stays PRIMARY; within a tier, best snippet-rerank
+            # first (curated-first fully preserved), then original insertion order.
+            scored.sort(key=lambda t: (t[1], -t[3].get("_snippet_rerank", 0.0), t[2]))
+            log.info("RAG snippet-rerank selection applied to %d candidates (within-tier)", len(scored))
+        else:
+            # Fallback: original keyword-based order (source_rank, combined desc, index).
+            scored.sort(key=lambda t: (t[1], -t[4], t[2]))
         # Light per-domain cap so a single domain (e.g. Wikipedia) can't be the
         # only source: allow at most _MAX_PER_DOMAIN results from any one domain
         # while still filling up to max_results. Preserves sorted order, so the
