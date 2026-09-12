@@ -103,7 +103,7 @@ class ChatService:
                     and rag_pipeline.classify_query(user_msg) == "factual":
                 _eff_temp = self.config.FACTUAL_TEMPERATURE
             if rag_pipeline.needs_search(user_msg):
-                search_results = rag_search.search(user_msg)
+                search_results = rag_search.search_with_refine(user_msg)
                 if search_results:
                     inputs = rag_pipeline.augment_prompt_in_place(inputs, search_results)
                     rag_sources = search_results

@@ -423,11 +423,12 @@ RERANK_SUFFICIENCY_THRESHOLD = 1.0  # good sets score ~9+, off-topic negative; ~
 # philadelphia ... not owned by a bigger company ... contact information" into
 # "philadelphia abstract art artist".
 _REFINE_DROP_WORDS = frozenset({
+    # ONLY structural "list a website/site/page located ..." wrapper scaffolding.
+    # NO semantic/constraint/negative words -- those (not, without, only, single,
+    # owned, bigger, company, featuring, contact, information, ...) must survive
+    # into the simplified query so the re-search never discards user intent.
     "list", "lists", "website", "websites", "site", "sites", "located", "location",
-    "related", "owned", "bigger", "larger", "company", "companies", "corporation",
-    "featuring", "feature", "single", "contact", "information", "info", "details",
-    "not", "without", "only", "named", "specific", "particular", "various",
-    "certain", "given", "must", "should", "need", "page", "pages",
+    "page", "pages",
 })
 
 
@@ -437,12 +438,17 @@ def _top_rerank(results):
     return max(scores) if scores else None
 
 
+# Keep enough words that a long constraint tail (negatives, qualifiers) survives
+# simplification -- 6 was too short and silently dropped later constraints.
+_SIMPLIFY_MAX_WORDS = 12
+
+
 def _simplify_query(query):
     """Reduce a query to its core topical nouns (drop structural/constraint
     words). Returns '' if it can't build a distinct, non-empty simplification."""
     kws = _extract_keywords(query or "")
     core = [k for k in kws if k not in _REFINE_DROP_WORDS] or kws
-    return " ".join(core[:6])
+    return " ".join(core[:_SIMPLIFY_MAX_WORDS])
 
 
 def search_with_refine(query, max_results=None):

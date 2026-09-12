@@ -19,12 +19,12 @@ from pollen.features.chat.retrieval.rag_common import (
 from pollen.features.chat.retrieval.rag_curated import fetch_curated_domains, fetch_curated_sources, is_community_domain
 from pollen.features.chat.retrieval.rag_ranking import is_blocked_domain
 from pollen.features.chat.retrieval.rag_fetchers import node_search, fetch_wikipedia
-from pollen.features.chat.retrieval.rag_retrieval import search, is_enabled
+from pollen.features.chat.retrieval.rag_retrieval import search, search_with_refine, is_enabled
 
 __all__ = [
     "RAG_ENABLED", "RAG_MAX_RESULTS", "RAG_SOURCES", "RAG_RATE_LIMIT",
     "RAG_SEARCH_TIMEOUT", "RAG_FETCH_CHARS", "RAG_FETCH_TIMEOUT", "RAG_FETCH_WORKERS",
     "PREFERRED_SOURCES", "DEPRIORITIZED_SOURCES",
     "fetch_curated_domains", "fetch_curated_sources", "is_community_domain",
-    "is_blocked_domain", "node_search", "fetch_wikipedia", "search", "is_enabled",
+    "is_blocked_domain", "node_search", "fetch_wikipedia", "search", "search_with_refine", "is_enabled",
 ]

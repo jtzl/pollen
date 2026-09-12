@@ -356,7 +356,7 @@ def build_augmented_prompt(user_message, system_prefix="", search_results=None):
     if search_results is not None:
         results = search_results
     elif needs_search(user_message):
-        results = rag_search.search(user_message)
+        results = rag_search.search_with_refine(user_message)
 
     if results:
         context_block = format_context(results)

@@ -85,7 +85,7 @@ _RELEVANCE_STOPWORDS = frozenset([
     "what","which","who","whom","whose","when","where","why","how",
     "my","your","his","her","its","our","their",
     "as","by","with","from","about","into","than","then","so","just","also","very",
-    "tell","show","give","find","get","need","want","know","think","make","help",
+    "tell","show","give","find","get","need","want","know","think","make","help","please",
     "good","best","top","great","nice","some","any","all","more","most","less",
     "vs","versus",
 ])
