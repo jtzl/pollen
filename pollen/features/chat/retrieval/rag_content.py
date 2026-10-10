@@ -394,7 +394,10 @@ def _enrich_results(results, query):
     """Fetch each result URL in parallel and replace/augment snippet with richer text."""
     if not results:
         return results
-    urls = [(i, r.get("url", "")) for i, r in enumerate(results) if r.get("url", "").startswith("http")]
+    # _no_fetch: the snippet is already authoritative text (e.g. a paper's abstract
+    # from rag_scholarly), so don't replace it with a scraped publisher page.
+    urls = [(i, r.get("url", "")) for i, r in enumerate(results)
+            if r.get("url", "").startswith("http") and not r.get("_no_fetch")]
     if not urls:
         return results
     workers = min(RAG_FETCH_WORKERS, len(urls))

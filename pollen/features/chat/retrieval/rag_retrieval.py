@@ -19,6 +19,8 @@ from pollen.features.chat.retrieval.rag_ranking import is_blocked_domain, _sourc
 from pollen.features.chat.retrieval.rag_content import _enrich_results, _clean_search_title
 from pollen.features.chat.retrieval.rag_fetchers import node_search, fetch_wikipedia
 from pollen.features.chat.retrieval import rag_rerank
+from pollen.features.chat.retrieval import rag_scholarly
+from pollen.core.config import AUTHORITY_TIERS
 
 # Topical-coverage gate: drop obvious off-topic single-incidental-keyword hits
 # that pure keyword-overlap otherwise lets through (e.g. "List" -> Latin-phrases
@@ -168,6 +170,12 @@ def search(query, max_results=None):
         log.info("RAG search starting: query=%r, %d variants=%r, filter=%r, max_results=%d, per_variant=%d",
                  query, len(variants), variants, source_filter.strip(), max_results, per_variant)
 
+        # Scholarly providers (OpenAlex, PubMed, arXiv...) are queried from the hub
+        # in the background while the slower node search runs, then merged into
+        # the same pool below. Keyword term, like the Wikipedia lookup: these
+        # indexes match on topic words, not on a natural-language question.
+        _sch_handle = rag_scholarly.start(" ".join(_extract_keywords(query)[:10]), query)
+
         results = []
         seen_urls = set()
         start = time.time()
@@ -286,6 +294,22 @@ def search(query, max_results=None):
         except Exception as we:
             log.warning("RAG wikipedia merge failed for query=%r: %s", query, we)
 
+        # Merge scholarly results into the same pool. They go through the same
+        # relevance gates, tiers and reranker as web results; nothing is forced in.
+        try:
+            _sch_added = 0
+            for sr_ in rag_scholarly.collect(_sch_handle):
+                surl = sr_.get("url", "")
+                if not surl or surl in seen_urls or is_blocked_domain(surl):
+                    continue
+                seen_urls.add(surl)
+                results.append(sr_)
+                _sch_added += 1
+            if _sch_added:
+                log.info("RAG scholarly added %d candidate(s) for query=%r", _sch_added, query)
+        except Exception as se:
+            log.warning("RAG scholarly merge failed for query=%r: %s", query, se)
+
         keywords = _extract_keywords(query)
         scored = []
         dropped = 0
@@ -332,6 +356,10 @@ def search(query, max_results=None):
             # relevance score `rs` still gates survival (the rs<=0 drop above)
             # and RAG_MAX_RESULTS is unchanged -- only ORDER changes.
             auth = _authority_score(r.get("url", ""))
+            # A peer-reviewed paper is high authority whatever host its link uses
+            # (doi.org is not on the domain list, the journal behind it is).
+            if r.get("_peer_reviewed"):
+                auth = max(auth, AUTHORITY_TIERS["high"])
             # Retain the PURE authority delta on the source dict so it survives
             # sorting and the downstream emit projections (frontend trust color).
             r["authority"] = auth
@@ -357,6 +385,18 @@ def search(query, max_results=None):
         except Exception as _selerr:
             log.debug("RAG snippet-rerank selection failed (%s); using keyword sort", _selerr)
         if _sel_ok:
+            # Papers must earn their place: drop scholarly candidates below the
+            # relevance bar (see rag_scholarly.min_rerank). Without this, a curated
+            # host such as PubMed would put loosely related papers first on every
+            # question, because the curated tier outranks relevance.
+            _web_best = max((t[3].get("_snippet_rerank", 0.0) for t in scored
+                             if not t[3].get("_scholarly")), default=None)
+            _sch_floor = rag_scholarly.min_rerank(query, _web_best)
+            _n_before = len(scored)
+            scored = [t for t in scored
+                      if not t[3].get("_scholarly") or t[3].get("_snippet_rerank", 0.0) >= _sch_floor]
+            if len(scored) != _n_before:
+                log.info("RAG scholarly relevance bar %.2f dropped %d paper(s)", _sch_floor, _n_before - len(scored))
             # source_rank tier stays PRIMARY; within a tier, best snippet-rerank
             # first (curated-first fully preserved), then original insertion order.
             scored.sort(key=lambda t: (t[1], -t[3].get("_snippet_rerank", 0.0), t[2]))
@@ -369,17 +409,34 @@ def search(query, max_results=None):
         # while still filling up to max_results. Preserves sorted order, so the
         # [n] citation numbering (format_context) stays consistent.
         _MAX_PER_DOMAIN = 2
+        # Scholarly cap: papers should add to web sources, not crowd them out, so
+        # at most _sch_cap make the first pass (more when the question asks for
+        # research). Papers held back only fill slots the web could not.
+        _sch_cap = rag_scholarly.result_cap(query)
+        _sch_count = 0
+        _sch_held = []
         _dom_counts = {}
         results = []
         for _t in scored:
             _r = _t[3]
             _dom = _domain_of(_r.get("url", ""))
-            if _dom and _dom_counts.get(_dom, 0) >= _MAX_PER_DOMAIN:
-                continue
-            _dom_counts[_dom] = _dom_counts.get(_dom, 0) + 1
+            # doi.org is one host for every publisher, so the per-domain cap would
+            # limit papers arbitrarily; the scholarly cap governs them instead.
+            if _r.get("_scholarly"):
+                if _sch_count >= _sch_cap:
+                    _sch_held.append(_r)
+                    continue
+                _sch_count += 1
+            else:
+                if _dom and _dom_counts.get(_dom, 0) >= _MAX_PER_DOMAIN:
+                    continue
+                _dom_counts[_dom] = _dom_counts.get(_dom, 0) + 1
             results.append(_r)
             if len(results) >= max_results:
                 break
+        if len(results) < max_results and _sch_held:
+            results.extend(_sch_held[:max_results - len(results)])
+            results.sort(key=lambda r: (r.get("_source_rank", 1), -r.get("_snippet_rerank", 0.0)))
 
         log.info("RAG search complete: query=%r, %d relevant results (%d dropped) in %.1fs",
                  query, len(results), dropped, elapsed)
