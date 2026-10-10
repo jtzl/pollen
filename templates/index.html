@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link href="./static/style.css?v=20" rel="stylesheet">
+  <link href="./static/style.css?v=21" rel="stylesheet">
   <!-- Marked.js for Markdown rendering -->
 </head>
 <body class="bg-gray-50 dark:bg-surface-300 text-gray-800 dark:text-gray-200 h-screen flex overflow-hidden chat-empty">
@@ -180,11 +180,11 @@
             <button id="send-btn" onclick="sendMessage()"
               class="p-1.5 rounded-lg bg-accent-500 hover:bg-accent-600 text-white transition-all disabled:opacity-20 disabled:cursor-not-allowed disabled:hover:bg-accent-500"
               disabled>
-              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
             </button>
           </div>
         </div>
-        <div class="flex items-center justify-between mt-1.5 px-1">
+        <div class="composer-hints flex items-center justify-between mt-1.5 px-1">
           <span class="text-[10px] text-gray-600">Shift+Enter for new line</span>
           <span class="text-[10px] text-gray-600">
             <span id="token-counter" class="hidden text-[10px] text-accent-400 tabular-nums font-medium"></span><span id="speed-info" class="hidden text-gray-500"></span>

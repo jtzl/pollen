@@ -763,16 +763,20 @@ body, input, textarea, button, select, h1, h2, h3, h4 {
 
 /* Structural surfaces */
 body { background: #ffffff !important; color: #0d0d0d; }
-#sidebar { background: #f9f9f9 !important; border-color: #ececec !important; }
+#sidebar { background: #f9f9f9 !important; border-color: transparent !important; width: 260px; }
+#sidebar > div { border-color: transparent !important; }
 header, footer, #image-panel { background: #ffffff !important; border-color: #ececec !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+/* No rules between header / conversation / composer: whitespace separates them. */
+header.flex-shrink-0, footer.flex-shrink-0 { border-color: transparent !important; }
 body.chat-empty footer { background: #ffffff !important; }
+#header-title { font-size: 17px !important; font-weight: 600 !important; letter-spacing: -0.2px; }
 
 /* Dividers / borders -> solid #ececec */
 .border-black\/10, .border-black\/5, .border-gray-200 { border-color: #ececec !important; }
 
 /* Hover surfaces -> #f0f0f0 (icon buttons + sidebar rows) */
 .hover\:bg-black\/5:hover { background-color: #f0f0f0 !important; }
-.chat-history-item { color: #5d5d5d; }
+.chat-history-item { color: #5d5d5d; font-size: 14px; border-radius: 10px; }
 .chat-history-item:hover { background: #f0f0f0 !important; }
 .chat-history-item.active { background: #ececec !important; color: #0d0d0d !important; }
 
@@ -800,35 +804,53 @@ a.text-accent-400 { color: #0d0d0d !important; }
 .model-badge { background: #f0f0f0 !important; border: 1px solid #e3e3e3 !important; color: #5d5d5d !important; border-radius: 999px !important; padding: 1px 8px !important; }
 
 /* Composer field */
-.input-container { background: #f4f4f4 !important; border: 1px solid #e3e3e3 !important; border-radius: 26px !important; box-shadow: none !important; }
-.input-container:focus-within { border-color: #0d0d0d !important; box-shadow: none !important; }
+.input-container { background: #ffffff !important; border: 1px solid #e3e3e3 !important; border-radius: 28px !important; box-shadow: 0 2px 6px rgba(0,0,0,0.05), 0 8px 24px rgba(0,0,0,0.04) !important; padding: 10px 10px 10px 20px !important; }
+.input-container:focus-within { border-color: #cfcfcf !important; }
 #message-input, #image-prompt { background: transparent !important; color: #0d0d0d !important; }
+#message-input { font-size: 16px !important; padding: 6px 0; }
+#message-input::placeholder { color: #8f8f8f; }
 
 /* Send button -> circular black */
-#send-btn { background: #0d0d0d !important; color: #ffffff !important; width: 34px; height: 34px; border-radius: 9999px !important; display: flex !important; align-items: center; justify-content: center; }
+#send-btn { background: #0d0d0d !important; color: #ffffff !important; width: 36px; height: 36px; border-radius: 9999px !important; display: flex !important; align-items: center; justify-content: center; }
 #send-btn:hover:not(:disabled) { background: #3d3d3d !important; }
 #send-btn:disabled { background: #d9d9d9 !important; opacity: 1 !important; }
+#stop-btn { background: #0d0d0d !important; border-radius: 9999px !important; animation: none !important; }
+#stop-btn:hover { background: #3d3d3d !important; }
+
+/* Hint row + privacy notice under the composer */
+.composer-hints { margin-top: 8px !important; }
+.composer-hints span, .privacy-notice span { font-size: 12px !important; color: #8f8f8f !important; }
+.privacy-notice { opacity: 1; max-width: 640px; }
+.privacy-notice > span { display: inline !important; }
+.privacy-notice svg { display: inline-block; vertical-align: -1px; margin-right: 3px; }
 #image-gen-btn { background: #0d0d0d !important; color: #ffffff !important; }
 #image-gen-btn:hover { background: #3d3d3d !important; }
 
 /* New Chat button */
-.new-chat-btn { background: #ffffff !important; border: 1px solid #e3e3e3 !important; border-radius: 12px !important; color: #0d0d0d !important; }
-.new-chat-btn:hover { background: #f0f0f0 !important; }
+.new-chat-btn { background: transparent !important; border: 0 !important; border-radius: 10px !important; color: #0d0d0d !important; font-size: 14px !important; }
+.new-chat-btn:hover { background: #ececec !important; }
 
 /* Avatars -> mono */
 .avatar-user { background: #0d0d0d; color: #ffffff; }
 .avatar-assistant { background: #ececec; color: #0d0d0d; }
 
-/* Message bubbles (ChatGPT style) */
-.msg-user { background: #f4f4f4; color: #0d0d0d; border: 1px solid #ececec; }
-.msg-assistant { background: #f4f4f4; color: #0d0d0d; border: 1px solid #ececec; }
+/* Messages (ChatGPT style): the question is a soft pill on the right, the
+   answer is plain text on the page at full column width. */
+.msg-user { background: #f4f4f4; color: #0d0d0d; border: 0; border-radius: 22px !important; padding: 10px 18px !important; font-size: 16px !important; line-height: 1.5 !important; }
+.msg-assistant { background: transparent; color: #0d0d0d; border: 0; border-radius: 0 !important; padding: 0 !important; font-size: 16px !important; line-height: 1.7 !important; }
+.message-row:not(.flex-row-reverse) > div { max-width: 100% !important; width: 100%; }
+.msg-assistant .msg-content p { margin: 12px 0; }
+.msg-assistant .msg-content > :first-child { margin-top: 0; }
+.msg-assistant .msg-content li { margin: 6px 0; }
+.rag-sources { margin-top: 14px; padding: 0; }
+#typing-indicator .typing-dots { background: transparent !important; border: 0 !important; padding-left: 0 !important; }
 
 /* Welcome heading */
-#welcome-screen h2 { font-size: 30px !important; font-weight: 600 !important; letter-spacing: -0.4px; color: #0d0d0d !important; }
+#welcome-screen h2 { font-size: 30px !important; font-weight: 500 !important; letter-spacing: -0.5px; color: #0d0d0d !important; }
+body.chat-empty #welcome-screen { padding-bottom: 2rem !important; }
 
 /* Focus rings -> mono */
-.focus\:border-accent-500\/50:focus,
-.focus-within\:border-accent-500\/50:focus-within { border-color: #0d0d0d !important; }
+.focus\:border-accent-500\/50:focus { border-color: #0d0d0d !important; }
 
 /* Markdown content */
 .msg-content strong { color: #0d0d0d; }
