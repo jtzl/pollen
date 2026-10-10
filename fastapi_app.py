@@ -576,7 +576,14 @@ async def ws_api_generate(websocket: WebSocket):
 
             while True:  # multi-turn: one iteration per client "generate" message
                 # Flask: json.loads(ws.receive(timeout=config.STEP_TIMEOUT))
-                request = json.loads(await asyncio.wait_for(websocket.receive_text(), config.STEP_TIMEOUT))
+                try:
+                    request = json.loads(await asyncio.wait_for(websocket.receive_text(), config.STEP_TIMEOUT))
+                except asyncio.TimeoutError:
+                    # Idle client: no next question within STEP_TIMEOUT. That is not a
+                    # generation failure, so end the session quietly (the client opens a
+                    # new one on its next send) instead of sending an error frame, which
+                    # the page would show as "Generation error" under a finished answer.
+                    break
                 assert request["type"] == "generate"
 
                 # Threadpool bridge (validated in scratch_ws_bridge_test.py): run the
