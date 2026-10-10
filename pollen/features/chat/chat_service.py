@@ -52,6 +52,16 @@ def _last_sentence_end(text):
     return last
 
 
+def _runon_limit(tail, unpunct_limit, punct_limit):
+    """Length a sentence-less tail may reach before the run-on backstop cuts it.
+    A degenerate word chain has no internal punctuation and gets the short
+    limit. A tail with several commas / parentheses / brackets is a long but
+    structured sentence (e.g. "In a randomized trial (n=90) [1], researchers
+    found ...") and gets the longer one, so real prose is not cut mid-sentence."""
+    marks = sum(tail.count(c) for c in ",;:()[]")
+    return punct_limit if marks >= 3 else unpunct_limit
+
+
 class ChatService:
     def __init__(self, model, tokenizer, backend_config, config):
         self.model = model
@@ -254,7 +264,10 @@ class ChatService:
             # is why this never fired on the real spiral.
             if not stop and total_generated >= self.config.WS_RUNON_MIN_TOKENS:
                 _lp = _last_sentence_end(combined)
-                if _lp >= 0 and (len(combined) - _lp) >= self.config.WS_RUNON_MAX_UNPUNCT_CHARS:
+                if _lp >= 0 and (len(combined) - _lp) >= _runon_limit(
+                        combined[_lp:], self.config.WS_RUNON_MAX_UNPUNCT_CHARS,
+                        getattr(self.config, "WS_RUNON_MAX_PUNCT_CHARS",
+                                self.config.WS_RUNON_MAX_UNPUNCT_CHARS * 2)):
                     stop = True
                     _hit_extra = True   # bypass the min-tokens floor
                     _runon_cut = True   # attach sources even if inline cites were lost

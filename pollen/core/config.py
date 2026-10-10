@@ -43,6 +43,10 @@ WS_MAX_OUTPUT_TOKENS = int(os.getenv("WS_MAX_OUTPUT_TOKENS", "320"))
 # prose/lists which end sentences regularly. Env-overridable.
 WS_RUNON_MIN_TOKENS = int(os.getenv("WS_RUNON_MIN_TOKENS", "48"))
 WS_RUNON_MAX_UNPUNCT_CHARS = int(os.getenv("WS_RUNON_MAX_UNPUNCT_CHARS", "300"))
+# A tail that is long but internally punctuated (commas, parentheses, citation
+# brackets) is a dense real sentence -- typical when summarising a paper -- not a
+# word chain, so it gets this longer allowance before the backstop cuts it.
+WS_RUNON_MAX_PUNCT_CHARS = int(os.getenv("WS_RUNON_MAX_PUNCT_CHARS", "600"))
 DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.6"))
 # Cooler temperature applied to FACTUAL queries for better grounding (opinion/
 # creative stay at DEFAULT_TEMPERATURE). Only overrides the default, never an
