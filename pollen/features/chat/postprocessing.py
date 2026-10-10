@@ -877,6 +877,37 @@ def _filter_cited_sources(text, sources):
     return [sources[n - 1] for n in sorted(cited) if 1 <= n <= len(sources)]
 
 
+def _renumber_citations(text, n_sources):
+    """Renumber [n] markers to 1..k in the order of the cited subset.
+
+    When only some retrieved sources are cited, only that subset is sent to the
+    page, which numbers its pills 1..k and links each [n] to pill n. The text
+    still carries the ORIGINAL indices, so an answer citing [2] and [3] out of
+    eight sources arrived with two pills and markers pointing at the wrong pill
+    (or at none). Mapping the markers onto the subset's positions keeps every
+    marker on the source it was written for. Must use the same notion of
+    "cited" as _filter_cited_sources, and run after _strip_orphan_markers."""
+    if not text or not n_sources:
+        return text
+    pat = r"\[([\d,\s]+)\]"
+    cited = set()
+    for grp in re.findall(pat, text):
+        for part in grp.split(","):
+            part = part.strip()
+            if part.isdigit() and 1 <= int(part) <= n_sources:
+                cited.add(int(part))
+    mapping = {old: new for new, old in enumerate(sorted(cited), 1)}
+    if all(old == new for old, new in mapping.items()):
+        return text
+
+    def _repl(m):
+        parts = [p.strip() for p in m.group(1).split(",")]
+        mapped = [str(mapping[int(p)]) for p in parts if p.isdigit() and int(p) in mapping]
+        return "[" + ", ".join(mapped) + "]" if mapped else m.group(0)
+
+    return re.sub(pat, _repl, text)
+
+
 def _strip_orphan_markers(text, n_sources):
     """Remove [n] citation markers whose index has no matching source (index
     out of range, or ALL markers when n_sources == 0), so the reader never sees

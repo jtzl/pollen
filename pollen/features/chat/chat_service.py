@@ -30,7 +30,7 @@ from pollen.features.chat.utils import (
     safe_emit_len_for_citations,
     is_url_query,
 )
-from pollen.features.chat.postprocessing import _filter_cited_sources, _strip_orphan_markers
+from pollen.features.chat.postprocessing import _filter_cited_sources, _strip_orphan_markers, _renumber_citations
 
 logger = hivemind.get_logger(__file__)
 
@@ -200,6 +200,10 @@ class ChatService:
                 hard_stop_msg["final_text"] = _hard_final
                 if rag_sources:
                     _cited = _filter_cited_sources(_hard_final, rag_sources)
+                    if _cited:
+                        # Only the cited subset is sent; renumber the markers to match.
+                        _hard_final = _renumber_citations(_hard_final, len(rag_sources))
+                        hard_stop_msg["final_text"] = _hard_final
                     # Same fallback as the normal-stop path: prefer the [N]-cited
                     # subset, else attach ALL retrieved sources (prose citations).
                     _srcs = _cited if _cited else rag_sources
@@ -354,6 +358,10 @@ class ChatService:
                     step_msg["final_text"] = filtered_all
                 if stop and rag_sources:
                     _cited = _filter_cited_sources(filtered_all, rag_sources)
+                    if _cited:
+                        # Only the cited subset is sent; renumber the markers to match.
+                        filtered_all = _renumber_citations(filtered_all, len(rag_sources))
+                        step_msg["final_text"] = filtered_all
                     # Prefer the precise [N]-cited subset when the model emitted
                     # markers; otherwise (it cited in prose at higher temp, or a run-on
                     # cut) fall back to ALL retrieved sources so the sources block still
