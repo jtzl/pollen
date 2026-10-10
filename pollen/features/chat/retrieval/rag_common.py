@@ -34,6 +34,17 @@ PREFERRED_SOURCES = tuple(d.strip().lower() for d in os.getenv("PREFERRED_SOURCE
 # Matches the bare domain and any subdomain via the existing endswith check in _source_rank.
 _DEPRIORITIZED_DEFAULTS = (
     "wikipedia.org",
+    # Social / video / pinboard / non-article domains: ranked BELOW real article
+    # sources for factual queries (tier 2). NOT blocked -- they still surface if
+    # nothing better exists. tiktok/pinterest are the clear offenders; the social
+    # video sites are borderline and only deprioritized, never hard-blocked.
+    "tiktok.com",
+    "pinterest.com",
+    "instagram.com",
+    "facebook.com",
+    "youtube.com",
+    "x.com",
+    "twitter.com",
 )
 _DEPRIORITIZED_ENV = tuple(d.strip().lower() for d in os.getenv("DEPRIORITIZED_SOURCES", "").split(",") if d.strip())
 # Merge defaults + env, de-duped, preserving order (defaults first).

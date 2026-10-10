@@ -70,7 +70,7 @@ function openSession() {
     var protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
     ws = new WebSocket(protocol + location.host + '/api/v2/generate');
     ws.onopen = function() {
-      sessionLength = initialSessionLength;
+      if (!sessionLength) sessionLength = initialSessionLength;
       ws.send(JSON.stringify({
         type: 'open_inference_session',
         model: curModel,
@@ -506,21 +506,22 @@ function trimToLastSentence(text) {
 // ==================== Generation Core ====================
 
 function buildPrompt() {
+  // ChatML format (Nous-Hermes). Each turn is <|im_start|>role ... <|im_end|>;
+  // the final assistant turn is left open for generation. Must mirror the
+  // server-side prompt_format.py so the model emits <|im_end|> and stops cleanly.
   var sysPrompt = config.chat.system_prompt || '';
-  var prompt = '<s> ';
+  var prompt = '';
+  if (sysPrompt) {
+    prompt += '<|im_start|>system\n' + sysPrompt + '<|im_end|>\n';
+  }
   for (var i = 0; i < messages.length; i++) {
     var msg = messages[i];
     if (msg.role === 'user') {
-      prompt += '[INST] ';
-      if (i === 0 && sysPrompt) {
-        prompt += sysPrompt + '\n\n';
-      }
-      prompt += msg.content + ' [/INST]';
+      prompt += '<|im_start|>user\n' + msg.content + '<|im_end|>\n';
+    } else if (i < messages.length - 1) {
+      prompt += '<|im_start|>assistant\n' + msg.content + '<|im_end|>\n';
     } else {
-      prompt += msg.content;
-      if (i < messages.length - 1) {
-        prompt += '</s> ';
-      }
+      prompt += '<|im_start|>assistant\n';
     }
   }
   return prompt;

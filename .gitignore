@@ -51,3 +51,16 @@ static/test_results.txt
 
 # Local-only operational skill / cheat-sheet (never commit or push)
 SKILL.md
+
+# Logs
+*.log
+
+# Stray runtime/deploy-state markers and retired unit backups (not source)
+.arch_ts
+.bot_repoint_ts
+.fastapi_stage3_ts
+.fastapi_static_ts
+*.retired-backup
+
+# Scratch RAG diagnostic (not part of the app)
+rag_diag.py

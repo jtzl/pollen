@@ -20,6 +20,7 @@ import hivemind
 from petals.client.routing.sequence_manager import MissingBlocksError
 
 from pollen.features.chat import rag_pipeline
+from pollen.features.chat import prompt_format
 from pollen.features.chat.retrieval import rag_search
 from pollen.infrastructure import speed_tracker
 from pollen.features.chat.utils import (
@@ -34,6 +35,23 @@ from pollen.features.chat.postprocessing import _filter_cited_sources, _strip_or
 logger = hivemind.get_logger(__file__)
 
 
+def _last_sentence_end(text):
+    """Index just past the last '.', '!' or '?' that ends a sentence -- allowing
+    trailing closing quotes/brackets, then whitespace or end-of-string. Returns -1
+    if none. Unlike a plain '. ' search this catches period+quote (e.g. 'highways."'),
+    which real run-on spirals contain right before they degrade."""
+    last = -1
+    n = len(text)
+    for i, ch in enumerate(text):
+        if ch in ".!?":
+            j = i + 1
+            while j < n and text[j] in "\"')]”’":
+                j += 1
+            if j >= n or text[j].isspace():
+                last = j
+    return last
+
+
 class ChatService:
     def __init__(self, model, tokenizer, backend_config, config):
         self.model = model
@@ -45,10 +63,14 @@ class ChatService:
         # important for values like no_repeat_ngram_size=0, where a falsy
         # default would otherwise be silently replaced.
         self.generation_params = {}
+        self._chat_stop_token = None
+        self._chat_extra_stops = None
         for _family in config.MODEL_FAMILIES.values():
             for _model_config in _family:
                 if _model_config.backend.key == backend_config.key:
                     self.generation_params = dict(_model_config.chat.generation_params or {})
+                    self._chat_stop_token = _model_config.chat.stop_token
+                    self._chat_extra_stops = list(_model_config.chat.extra_stop_sequences or [])
                     break
         # model_name is used only by the falcon-180B stop-sequence guard below.
         # The constructor signature is fixed, so derive it from the backend key
@@ -117,7 +139,11 @@ class ChatService:
             n_input_tokens = 0
 
         stop_sequence = request.get("stop_sequence")
+        if stop_sequence is None:
+            stop_sequence = self._chat_stop_token
         extra_stop_sequences = request.get("extra_stop_sequences")
+        if extra_stop_sequences is None:
+            extra_stop_sequences = self._chat_extra_stops
         if extra_stop_sequences is not None:
             cont_token = self.tokenizer(stop_sequence, return_tensors="pt")["input_ids"].to(self.config.DEVICE)
             if cont_token.shape != (1, 1):
@@ -126,9 +152,21 @@ class ChatService:
         max_total_tokens = request.get("max_total_tokens", 512)
         # Quick-mode: cap generation length when the user message (text after
         # the last [INST] in the original request) starts with "quick:".
-        _quick_portion = (request.get("inputs") or "").rsplit("[INST]", 1)[-1].strip().lower()
+        _quick_portion = prompt_format.quick_portion(request.get("inputs"))
         if _quick_portion.startswith("quick:"):
             max_total_tokens = min(max_total_tokens, 100)
+        # BACKSTOP 1: absolute server-side ceiling, independent of what the client
+        # sent, so a generation that never emits a stop token cannot run forever.
+        max_total_tokens = min(max_total_tokens, self.config.WS_MAX_OUTPUT_TOKENS)
+        # DIAG: log the effective request/sampling params so we can see exactly what
+        # the real browser sends vs. what a test client sends (why one spirals).
+        logger.info(
+            "ws.generate.params eff_temp=%s do_sample=%s top_p=%s top_k=%s rep_pen=%s "
+            "no_repeat_ngram=%s stop_seq=%r extra_stops=%r max_total=%s min_floor=%s eos=%s"
+            % (_eff_temp, request.get("do_sample"), request.get("top_p"), request.get("top_k"),
+               request.get("repetition_penalty"), self._gen_param(request, "no_repeat_ngram_size", 0),
+               stop_sequence, extra_stop_sequences, max_total_tokens,
+               request.get("min_total_tokens", 120), self.tokenizer.eos_token_id))
 
         all_outputs = ""
         sent_filtered_len = 0
@@ -152,8 +190,14 @@ class ChatService:
                 hard_stop_msg["final_text"] = _hard_final
                 if rag_sources:
                     _cited = _filter_cited_sources(_hard_final, rag_sources)
-                    if _cited:
-                        hard_stop_msg["rag_sources"] = [{"title": r["title"], "url": r["url"], "authority": r.get("authority", 0)} for r in _cited]
+                    # Same fallback as the normal-stop path: prefer the [N]-cited
+                    # subset, else attach ALL retrieved sources (prose citations).
+                    _srcs = _cited if _cited else rag_sources
+                    logger.info("RAG sources-attach hardstop: path=%s cited=%d retrieved=%d attached=%d digit_marker=%s"
+                             % ("cited" if _cited else "fallback", len(_cited), len(rag_sources), len(_srcs),
+                                any(_hard_final[k + 1:k + 2].isdigit() for k in range(len(_hard_final)) if _hard_final[k] == "[")))
+                    if _srcs:
+                        hard_stop_msg["rag_sources"] = [{"title": r["title"], "url": r["url"], "authority": r.get("authority", 0)} for r in _srcs]
                     rag_sources = []
                 yield hard_stop_msg
                 break
@@ -168,6 +212,7 @@ class ChatService:
                 max_length=request.get("max_length"),
                 max_new_tokens=request.get("max_new_tokens"),
                 no_repeat_ngram_size=self._gen_param(request, "no_repeat_ngram_size", 0),
+                eos_token_id=self.tokenizer.eos_token_id,
                 session=session,
             )
             delta = outputs[0, n_input_tokens:].tolist()
@@ -179,10 +224,13 @@ class ChatService:
             stop = stop_sequence is None or (
                 "falcon-180B" not in self.model_name and combined.endswith(stop_sequence)
             )
+            _hit_extra = False
+            _runon_cut = False
             if extra_stop_sequences is not None:
                 for seq in extra_stop_sequences:
                     if seq in combined:
                         stop = True
+                        _hit_extra = True
                         # Truncate output at the stop sequence
                         idx = combined.find(seq)
                         truncated = combined[:idx]
@@ -190,13 +238,42 @@ class ChatService:
                         combined = truncated
                         session.last_token_id = cont_token
                         break
+            # BACKSTOP 2: a hallucinated new turn (<|im_start|>) must terminate the
+            # stream and be discarded, even if the client didn't list it as a stop.
+            if not _hit_extra and "<|im_start|>" in combined:
+                stop = True
+                _hit_extra = True
+                idx = combined.find("<|im_start|>")
+                combined = combined[:idx]
+                outputs = combined[len(all_outputs):]
+            # BACKSTOP 3: degenerative run-on. Once a real sentence has formed, if the
+            # model free-associates a long tail with no sentence-ending punctuation (a
+            # word chain that never repeats a 3-gram and never emits <|im_end|>), cut it
+            # and truncate at that last complete sentence. _last_sentence_end catches
+            # period+quote ('highways."') that a plain '. ' search misses -- that miss
+            # is why this never fired on the real spiral.
+            if not stop and total_generated >= self.config.WS_RUNON_MIN_TOKENS:
+                _lp = _last_sentence_end(combined)
+                if _lp >= 0 and (len(combined) - _lp) >= self.config.WS_RUNON_MAX_UNPUNCT_CHARS:
+                    stop = True
+                    _hit_extra = True   # bypass the min-tokens floor
+                    _runon_cut = True   # attach sources even if inline cites were lost
+                    # Truncate UNCONDITIONALLY at the sentence end so all_outputs ->
+                    # filtered_all -> final_text is clean; the client replaces the shown
+                    # text with final_text on stop, retracting the streamed run-on tail.
+                    combined = combined[:_lp]
+                    outputs = combined[len(all_outputs):] if len(combined) > len(all_outputs) else ""
+                    logger.info("ws.generate.runon_backstop fired gen=%d cut_at=%d final_len=%d"
+                                % (total_generated, _lp, len(combined)))
             # HARD LIMIT check after generation
             if total_generated >= max_total_tokens:
                 stop = True
             _min_floor = request.get("min_total_tokens", 120)
+            # Use the hit flag (set BEFORE truncation) rather than re-scanning the
+            # already-truncated `combined`, so a natural stop on a short answer is
+            # not wrongly overridden by the min-tokens floor (that override caused
+            # short answers to run past <|im_end|> and spiral).
             if stop and total_generated < _min_floor and total_generated < max_total_tokens:
-                _hit_extra = extra_stop_sequences is not None and any(
-                    seq in combined for seq in extra_stop_sequences)
                 if not _hit_extra:
                     stop = False
             if not stop and outputs[-10:].find("�") > -1:
@@ -264,8 +341,16 @@ class ChatService:
                     step_msg["final_text"] = filtered_all
                 if stop and rag_sources:
                     _cited = _filter_cited_sources(filtered_all, rag_sources)
-                    if _cited:
-                        step_msg["rag_sources"] = [{"title": r["title"], "url": r["url"], "authority": r.get("authority", 0)} for r in _cited]
+                    # Prefer the precise [N]-cited subset when the model emitted
+                    # markers; otherwise (it cited in prose at higher temp, or a run-on
+                    # cut) fall back to ALL retrieved sources so the sources block still
+                    # shows what was actually used -- on a normal stop too.
+                    _srcs = _cited if _cited else rag_sources
+                    logger.info("RAG sources-attach step: path=%s cited=%d retrieved=%d attached=%d digit_marker=%s"
+                             % ("cited" if _cited else "fallback", len(_cited), len(rag_sources), len(_srcs),
+                                any(filtered_all[k + 1:k + 2].isdigit() for k in range(len(filtered_all)) if filtered_all[k] == "[")))
+                    if _srcs:
+                        step_msg["rag_sources"] = [{"title": r["title"], "url": r["url"], "authority": r.get("authority", 0)} for r in _srcs]
                     rag_sources = []
                 yield step_msg
 
@@ -311,7 +396,7 @@ class ChatService:
             # Quick-mode: cap generation length when the user message (text after
             # the last [INST] in the raw inputs) starts with "quick:". max_new_tokens
             # may be None here (caller supplied max_length instead), so guard before min().
-            _quick_portion = (inputs or "").rsplit("[INST]", 1)[-1].strip().lower()
+            _quick_portion = prompt_format.quick_portion(inputs)
             if _quick_portion.startswith("quick:") and max_new_tokens is not None:
                 max_new_tokens = min(max_new_tokens, 100)
             use_rag = self._typed_arg(request, "rag", str, "auto")
@@ -334,7 +419,7 @@ class ChatService:
                     if rag_results:
                         logger.info(f"generate(), RAG augmented with {len(rag_results)} results")
                 else:
-                    inputs = f"[INST] {inputs} [/INST]"
+                    inputs = prompt_format.wrap_user(inputs)
 
             if inputs is not None:
                 inputs = self.tokenizer(inputs, return_tensors="pt")["input_ids"].to(self.config.DEVICE)
@@ -356,8 +441,12 @@ class ChatService:
                 repetition_penalty=repetition_penalty,
                 max_length=max_length,
                 max_new_tokens=max_new_tokens,
+                eos_token_id=self.tokenizer.eos_token_id,
             )
             outputs = safe_decode(self.tokenizer, outputs[0, n_input_tokens:])
+            for _stp in (self._chat_extra_stops or []):
+                if _stp:
+                    outputs = outputs.split(_stp, 1)[0]
             outputs = strip_filler_phrases(outputs, max_citations=len(rag_results))
             logger.info(f"generate(), outputs={repr(outputs)}")
 

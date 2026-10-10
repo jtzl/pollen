@@ -6,6 +6,7 @@ from petals.client.routing.sequence_manager import MissingBlocksError
 
 from pollen.core import config
 from pollen.features.chat import rag_pipeline
+from pollen.features.chat import prompt_format
 from pollen.features.chat.utils import safe_decode, strip_filler_phrases
 
 logger = hivemind.get_logger(__file__)
@@ -28,7 +29,7 @@ def http_api_generate():
         # Quick-mode: cap generation length when the user message (text after the
         # last [INST] in the raw inputs) starts with "quick:". max_new_tokens may
         # be None here (caller supplied max_length instead), so guard before min().
-        _quick_portion = (inputs or "").rsplit("[INST]", 1)[-1].strip().lower()
+        _quick_portion = prompt_format.quick_portion(inputs)
         if _quick_portion.startswith("quick:") and max_new_tokens is not None:
             max_new_tokens = min(max_new_tokens, 100)
         use_rag = get_typed_arg("rag", str, "auto")
@@ -60,7 +61,7 @@ def http_api_generate():
                 if rag_results:
                     logger.info(f"generate(), RAG augmented with {len(rag_results)} results")
             else:
-                inputs = f"[INST] {inputs} [/INST]"
+                inputs = prompt_format.wrap_user(inputs)
 
         if inputs is not None:
             inputs = tokenizer(inputs, return_tensors="pt")["input_ids"].to(config.DEVICE)

@@ -4,6 +4,7 @@ import logging
 import re
 
 from pollen.features.chat.retrieval import rag_search
+from pollen.features.chat import prompt_format
 
 log = logging.getLogger("rag_pipeline")
 
@@ -122,15 +123,8 @@ _SKIP_RE = _STRICT_SKIP_RE
 
 
 def extract_user_message(prompt):
-    """Extract the last user message from a Mixtral [INST]...[/INST] prompt."""
-    # Find the last [INST] ... [/INST] block
-    matches = re.findall(r'\[INST\]\s*(.*?)\s*\[/INST\]', prompt, re.DOTALL)
-    if not matches:
-        return prompt.strip()
-    last = matches[-1].strip()
-    # If there's a system prompt, it's separated by two newlines; take the last part
-    parts = last.split('\n\n')
-    return parts[-1].strip()
+    """Extract the last user message from an [INST] or ChatML prompt."""
+    return prompt_format.extract_user_message(prompt)
 
 
 # Prompt-size budget. The Petals server advertises a 2048-token KV cache
@@ -267,13 +261,14 @@ def augment_prompt_in_place(full_prompt, results):
         instruction = _extend_instruction(instruction, results, user_msg)
     instruction = instruction + "\n\n"
 
-    # Find the last [INST] and inject context after it
-    last_inst = full_prompt.rfind("[INST]")
+    # Find the last user-turn marker and inject context after it
+    marker = prompt_format.insert_marker()
+    last_inst = full_prompt.rfind(marker)
     if last_inst < 0:
         return full_prompt
 
-    insert_pos = last_inst + len("[INST]")
-    # Skip any whitespace after [INST]
+    insert_pos = last_inst + len(marker)
+    # Skip any whitespace after the marker
     while insert_pos < len(full_prompt) and full_prompt[insert_pos] in " \t":
         insert_pos += 1
 
@@ -365,15 +360,10 @@ def build_augmented_prompt(user_message, system_prefix="", search_results=None):
         mode = classify_query(user_message)
         instruction = _OPINION_INSTRUCTION if mode == "opinion" else _FACTUAL_INSTRUCTION
         instruction = _extend_instruction(instruction, results, user_message)
-        prompt = (
-            f"{system_prefix}"
-            f"[INST] {instruction}\n\n"
-            f"{context_block}\n"
-            f"User question: {user_message} [/INST]"
-        )
+        prompt = prompt_format.build_augmented(system_prefix, instruction, context_block, user_message)
         prompt, context_block = _fit_prompt_to_budget(prompt, context_block)
     else:
-        prompt = f"{system_prefix}[INST] {user_message} [/INST]"
+        prompt = prompt_format.build_plain(system_prefix, user_message)
 
     return prompt, results
 
@@ -391,19 +381,6 @@ def augment_for_irc(user_message, bot_name="PollenBot", user_nick="user"):
         results = rag_search.search(user_message)
         context_block = format_context(results)
 
-    if context_block:
-        prompt = (
-            f"[INST] You are {bot_name}, a helpful IRC bot powered by Mixtral "
-            f"on the Petals network. Use the search results below to answer accurately. "
-            f"Keep answers concise (under 250 chars). Cite sources briefly.\n\n"
-            f"{context_block}\n"
-            f"User {user_nick} asks: {user_message} [/INST]"
-        )
-    else:
-        prompt = (
-            f"[INST] You are {bot_name}, a helpful IRC bot powered by Mixtral "
-            f"on the Petals network. Keep answers concise (under 250 chars). "
-            f"User {user_nick} says: {user_message} [/INST]"
-        )
+    prompt = prompt_format.build_irc(bot_name, user_nick, user_message, context_block)
 
     return prompt, results

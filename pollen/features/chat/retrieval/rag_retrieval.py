@@ -289,7 +289,21 @@ def search(query, max_results=None):
         keywords = _extract_keywords(query)
         scored = []
         dropped = 0
+        # Dead / parked / interstitial pages by title: a "Page not found" / "404" /
+        # "domain for sale" / Cloudflare-challenge result is never a real source and
+        # must not be shown even if it keyword-matches. Conservative, specific phrases.
+        _dead_re = _re.compile(
+            r"(page not found|404 not found|404 error|error 404|access denied|"
+            r"403 forbidden|just a moment\.\.\.|attention required|are you a (human|robot)|"
+            r"domain (is )?for sale|this domain is for sale|site can.?t be reached)",
+            _re.I,
+        )
         for i, r in enumerate(results):
+            _dt = (r.get("title") or "")
+            if _dead_re.search(_dt):
+                dropped += 1
+                log.info("RAG dead-page drop: %s - %s", _dt[:60], r.get("url", ""))
+                continue
             rs = _relevance_score(keywords, r.get("title", ""), r.get("snippet", ""))
             if rs <= 0:
                 dropped += 1
