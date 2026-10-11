@@ -655,6 +655,12 @@ function receiveReplica(prompt) {
           });
           return;
         }
+        // No headroom left: the conversation has reached the swarm's maximum
+        // session length. That is a capacity fact, not a failure -- say so
+        // plainly instead of showing a scary generic error.
+        showError('This conversation has reached its maximum length. Please start a New Chat to continue.', 'warning');
+        setGenerating(false); enableInput(); hideTokenCounter();
+        return;
       }
       if (response.code === 'cluster_unavailable' || errMsg.indexOf('MissingBlocksError') >= 0) {
         // Cluster is down or no node is serving the needed blocks.

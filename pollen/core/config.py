@@ -66,8 +66,13 @@ DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.6"))
 # explicit caller-set temperature. See chat_service per-type override.
 FACTUAL_TEMPERATURE = float(os.getenv("FACTUAL_TEMPERATURE", "0.7"))
 # Longest chat session (tokens) the web client may request. Bounded by the
-# SMALLEST per-session allowance in the swarm; see the ModelChatConfig comment.
-MAX_SESSION_LENGTH = int(os.getenv("MAX_SESSION_LENGTH", "4096"))
+# SMALLEST per-session allowance in the swarm. Verified live 2026-10-11: the
+# HUB petals-server refuses >2048 ("Cannot allocate KV cache ... max = 2048");
+# the 4090 accepts 8192 since its unit got --inference_max_length/--max_batch_size.
+# Raise this (env MAX_SESSION_LENGTH) only after the hub petals-server is
+# relaunched with those flags and a bigger --attn_cache_tokens -- which is
+# blocked until its NVIDIA driver/library mismatch is resolved.
+MAX_SESSION_LENGTH = int(os.getenv("MAX_SESSION_LENGTH", "2048"))
 
 # ==================== Network Settings ====================
 _peers_env = os.getenv("DHT_INITIAL_PEERS", "")
@@ -115,14 +120,7 @@ MODEL_FAMILIES = {
                 license=MODEL_LICENSE_URL,
             ),
             ModelChatConfig(
-                # Capped at 4096 (was 8192): the hub petals-server runs with
-                # --attn_cache_tokens 4096, so a longer session cannot allocate
-                # its KV cache there -- and the hub cannot be restarted to raise
-                # it until its NVIDIA driver/library mismatch is resolved (a
-                # fresh process would come up CPU-only and crash-loop). The
-                # 4090 accepts 8192 (--inference_max_length 8192 since
-                # 2026-10-11). Restore 8192 ONLY after hub petals maintenance.
-                max_session_length=MAX_SESSION_LENGTH,
+                max_session_length=MAX_SESSION_LENGTH,  # see MAX_SESSION_LENGTH above
                 sep_token=_CHAT_SEP_TOKEN,
                 stop_token=_CHAT_STOP_TOKEN,
                 extra_stop_sequences=list(_CHAT_EXTRA_STOPS),
