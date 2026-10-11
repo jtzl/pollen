@@ -877,6 +877,78 @@ def _filter_cited_sources(text, sources):
     return [sources[n - 1] for n in sorted(cited) if 1 <= n <= len(sources)]
 
 
+_REF_ENTRY_RE = re.compile(r'^\s*\[(\d+)\]\s+["“]?[A-Z]')
+_REF_HEADER_RE = re.compile(r'^\s*(references?|bibliography|sources?|works cited)\s*:?\s*$', re.I)
+_REF_CONTENT_RE = re.compile(r'et al|,\s+[A-Z]\.|vol\.|no\.\s*\d|pp\.|\bdoi\b|journal', re.I)
+
+
+def _strip_model_reference_list(text, n_sources):
+    """Remove a model-written reference list from the END of the answer.
+
+    The sources are attached as pills with correct links, so a bibliography the
+    model writes itself only duplicates them -- with details it fabricates from
+    memory (wrong volumes, pages and DOIs were observed in production).
+    Deliberately conservative, because a reference list the USER asked for must
+    survive (the caller skips this entirely when the question asks for one):
+
+    - only a trailing cluster of lines is touched, and its last entry must sit
+      within two lines of the end of the answer;
+    - entry lines must start with [n] followed by an author-like capital, and
+      every n must point at an attached source;
+    - the block must read like references (et-al / vol. / DOI / journal);
+    - at most 15 lines are removed, and non-empty prose must remain above.
+
+    Returns the text unchanged whenever any condition fails.
+    """
+    if not text or not n_sources:
+        return text
+    lines = text.rstrip().split("\n")
+    entry_idx = [j for j, ln in enumerate(lines) if _REF_ENTRY_RE.match(ln)]
+    if not entry_idx:
+        return text
+    # The bibliography lives at the end: the last entry may be followed only by
+    # its own short continuation (e.g. a dangling incomplete entry).
+    if len(lines) - 1 - entry_idx[-1] > 2:
+        return text
+    # Trailing cluster: walk entry lines upward while gaps between them are
+    # small enough to be wrapped continuations of the entry above.
+    start = entry_idx[-1]
+    for j in reversed(entry_idx[:-1]):
+        if start - j <= 3:
+            start = j
+        else:
+            break
+    # An optional "References:" style header directly above joins the block.
+    if start > 0 and _REF_HEADER_RE.match(lines[start - 1].strip()):
+        start -= 1
+    elif start > 1 and not lines[start - 1].strip() and _REF_HEADER_RE.match(lines[start - 2].strip()):
+        start -= 2
+    block_lines = lines[start:]
+    if len(block_lines) > 15:
+        return text
+    nums = [int(_REF_ENTRY_RE.match(ln).group(1)) for ln in block_lines if _REF_ENTRY_RE.match(ln)]
+    if not nums or any(n < 1 or n > n_sources for n in nums):
+        return text
+    if not _REF_CONTENT_RE.search("\n".join(block_lines)):
+        return text
+    remain = "\n".join(lines[:start]).rstrip()
+    if not remain:
+        return text
+    return remain
+
+
+_REF_REQUEST_RE = re.compile(
+    r"\b(bibliograph\w*|reference list|references|works cited|citation list|"
+    r"full citations?|(apa|mla|chicago)\s+(format|style))\b", re.I)
+
+
+def wants_reference_list(text):
+    """True when the user's question itself asks for references or a
+    bibliography, in which case a model-written reference list is the answer
+    and must not be stripped."""
+    return bool(text and _REF_REQUEST_RE.search(text))
+
+
 def _renumber_citations(text, n_sources):
     """Renumber [n] markers to 1..k in the order of the cited subset.
 

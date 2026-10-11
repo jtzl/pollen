@@ -30,7 +30,13 @@ from pollen.features.chat.utils import (
     safe_emit_len_for_citations,
     is_url_query,
 )
-from pollen.features.chat.postprocessing import _filter_cited_sources, _strip_orphan_markers, _renumber_citations
+from pollen.features.chat.postprocessing import (
+    _filter_cited_sources,
+    _strip_orphan_markers,
+    _renumber_citations,
+    _strip_model_reference_list,
+    wants_reference_list,
+)
 
 logger = hivemind.get_logger(__file__)
 
@@ -138,6 +144,7 @@ class ChatService:
         dicts the original ws_api_generate sent via ws.send(json.dumps(...)).
         The caller owns the inference_session and passes it in as `session`."""
         keep_urls = False  # set True below when the user asked for a URL
+        keep_refs = False  # set True below when the user asked for a reference list
         rag_sources = []
         # Effective sampling temperature; may drop to FACTUAL_TEMPERATURE for a
         # factual query below (unless the caller set a non-default temperature).
@@ -160,6 +167,7 @@ class ChatService:
         if inputs is not None:
             user_msg = rag_pipeline.extract_user_message(inputs)
             keep_urls = is_url_query(user_msg)
+            keep_refs = wants_reference_list(user_msg)
             # Per-type temperature: factual queries generate cooler for better
             # grounding, unless the caller explicitly set a non-default value.
             if (_eff_temp is None or _eff_temp == self.config.DEFAULT_TEMPERATURE) \
@@ -227,6 +235,10 @@ class ChatService:
                 # Canonical cleaned text: strip filler, then remove any
                 # orphaned [n] markers (no matching source) before display.
                 _hard_final = strip_filler_phrases(all_outputs, max_citations=len(rag_sources), is_final=True, keep_urls=keep_urls)
+                if not keep_refs:
+                    # A model-written bibliography duplicates the source pills with
+                    # fabricated details; drop it unless the user asked for one.
+                    _hard_final = _strip_model_reference_list(_hard_final, len(rag_sources))
                 _hard_final = _strip_orphan_markers(_hard_final, len(rag_sources))
                 hard_stop_msg["final_text"] = _hard_final
                 if rag_sources:
@@ -399,6 +411,10 @@ class ChatService:
                 # client can replace its append-streamed text and pick up any
                 # retroactive cleaning the per-step delta protocol can't convey.
                 if stop:
+                    if not keep_refs:
+                        # A model-written bibliography duplicates the source pills
+                        # with fabricated details; drop it unless asked for.
+                        filtered_all = _strip_model_reference_list(filtered_all, len(rag_sources))
                     # Remove any [n] markers with no matching source so the
                     # reader never sees an orphaned citation marker.
                     filtered_all = _strip_orphan_markers(filtered_all, len(rag_sources))
@@ -446,6 +462,9 @@ class ChatService:
         try:
             model_name = self._typed_arg(request, "model", str, self.config.MODEL_REPO)
             inputs = self._typed_arg(request, "inputs", str)
+            # Raw request text, kept before inputs is wrapped/tokenized, so the
+            # reference-list strip below can honour an explicit ask for one.
+            _keep_refs_once = wants_reference_list(inputs or "")
             do_sample = self._typed_arg(request, "do_sample", int, False)
             temperature = self._typed_arg(request, "temperature", float)
             # Per-type temperature: factual queries cooler unless the caller set
@@ -516,6 +535,8 @@ class ChatService:
                 if _stp:
                     outputs = outputs.split(_stp, 1)[0]
             outputs = strip_filler_phrases(outputs, max_citations=len(rag_results))
+            if not _keep_refs_once:
+                outputs = _strip_model_reference_list(outputs, len(rag_results))
             logger.info(f"generate(), outputs={repr(outputs)}")
 
             resp = {"ok": True, "outputs": outputs}

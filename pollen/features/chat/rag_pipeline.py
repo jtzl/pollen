@@ -176,6 +176,7 @@ def _fit_prompt_to_budget(full_prompt, context_block):
 
 _FACTUAL_INSTRUCTION = (
     "Base your answer primarily on the search results provided below, and cite them by number like [1] when you use a specific fact. Do not include URLs. "
+    "Cite ONLY with those bracketed numbers inside your sentences. Never append a reference list, bibliography or works-cited section: the sources are shown to the reader automatically, and invented publication details (volumes, pages, DOIs) are worse than none. "
     "When the search results are thin, irrelevant, or missing, answer from your own knowledge instead. Do not refuse or say you could not find information just because the search was weak. "
     "Synthesize across sources, include exact numbers, dates, names, and data points, and draw connections between them. "
     "Write as an expert explaining to a peer, not as a search engine listing results. "
