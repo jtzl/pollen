@@ -118,6 +118,20 @@ except Exception:
             LOW_STREAK=$(( $(cat "$LOWCOUNT_FILE" 2>/dev/null || echo 0) + 1 ))
             echo "$LOW_STREAK" > "$LOWCOUNT_FILE"
             if [ "$LOW_STREAK" -ge "$SERVER_LOW_STREAK" ]; then
+                # DRIVER-MISMATCH GUARD: when the NVIDIA userspace has been
+                # updated under a running process (nvidia-smi fails with
+                # "Driver/library version mismatch"), the CURRENT process keeps
+                # its GPU, but a RESTARTED one comes up CPU-only and crash-loops
+                # on "float16 is not supported on CPU" -- killing all coverage
+                # instead of recovering it. Never auto-restart in that state.
+                if ! nvidia-smi -L >/dev/null 2>&1; then
+                    log "CRITICAL: petals-server serving only $EC2_BLOCKS blocks AND nvidia-smi fails (driver/library mismatch). Restart SUPPRESSED: a fresh process would be CPU-only and crash-loop. Needs planned driver maintenance."
+                    record_failure "petals-server" "Low coverage ($EC2_BLOCKS blocks) with NVIDIA driver/library mismatch" "Auto-restart suppressed (would crash-loop CPU-only); manual maintenance required"
+                    rm -f "$LOWCOUNT_FILE"
+                    SKIP_PETALS_RESTART=1
+                fi
+            fi
+            if [ "$LOW_STREAK" -ge "$SERVER_LOW_STREAK" ] && [ "${SKIP_PETALS_RESTART:-0}" != "1" ]; then
                 log "FAIL: petals-server active but serving only $EC2_BLOCKS blocks (expected >= $SERVER_MIN_BLOCKS) for $LOW_STREAK consecutive checks. Restarting..."
                 sudo systemctl restart petals-server
                 if [ $? -eq 0 ]; then

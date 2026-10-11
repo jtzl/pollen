@@ -65,6 +65,9 @@ DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.6"))
 # creative stay at DEFAULT_TEMPERATURE). Only overrides the default, never an
 # explicit caller-set temperature. See chat_service per-type override.
 FACTUAL_TEMPERATURE = float(os.getenv("FACTUAL_TEMPERATURE", "0.7"))
+# Longest chat session (tokens) the web client may request. Bounded by the
+# SMALLEST per-session allowance in the swarm; see the ModelChatConfig comment.
+MAX_SESSION_LENGTH = int(os.getenv("MAX_SESSION_LENGTH", "4096"))
 
 # ==================== Network Settings ====================
 _peers_env = os.getenv("DHT_INITIAL_PEERS", "")
@@ -112,7 +115,14 @@ MODEL_FAMILIES = {
                 license=MODEL_LICENSE_URL,
             ),
             ModelChatConfig(
-                max_session_length=8192,
+                # Capped at 4096 (was 8192): the hub petals-server runs with
+                # --attn_cache_tokens 4096, so a longer session cannot allocate
+                # its KV cache there -- and the hub cannot be restarted to raise
+                # it until its NVIDIA driver/library mismatch is resolved (a
+                # fresh process would come up CPU-only and crash-loop). The
+                # 4090 accepts 8192 (--inference_max_length 8192 since
+                # 2026-10-11). Restore 8192 ONLY after hub petals maintenance.
+                max_session_length=MAX_SESSION_LENGTH,
                 sep_token=_CHAT_SEP_TOKEN,
                 stop_token=_CHAT_STOP_TOKEN,
                 extra_stop_sequences=list(_CHAT_EXTRA_STOPS),
