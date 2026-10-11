@@ -64,7 +64,7 @@ function setStatus(state) {
   }
 }
 
-function openSession() {
+function openSessionOnce() {
   return new Promise(function(resolve, reject) {
     setStatus('connecting');
     var protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
@@ -84,6 +84,24 @@ function openSession() {
     };
     ws.onerror = function() { setStatus('error'); reject('WebSocket connection failed'); };
     ws.onclose = function() { if (generating) setStatus('error'); };
+  });
+}
+
+// Every message opens a fresh WebSocket, so a one-second network blip at send
+// time used to surface as a red "Connection failed" banner even though the very
+// next attempt would have succeeded. Retry the connection with a short backoff
+// before giving up. Only genuine connection failures are retried; a server-side
+// rejection (license, bad session) is reported immediately.
+var SESSION_RETRY_DELAYS_MS = [600, 1500];
+function openSession(attempt) {
+  attempt = attempt || 0;
+  return openSessionOnce().catch(function(err) {
+    if (err !== 'WebSocket connection failed' || attempt >= SESSION_RETRY_DELAYS_MS.length) {
+      throw err;
+    }
+    return new Promise(function(resolve) {
+      setTimeout(resolve, SESSION_RETRY_DELAYS_MS[attempt]);
+    }).then(function() { return openSession(attempt + 1); });
   });
 }
 
