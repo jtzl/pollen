@@ -879,6 +879,10 @@ def _filter_cited_sources(text, sources):
 
 _REF_ENTRY_RE = re.compile(r'^\s*\[(\d+)\]\s+["“]?[A-Z]')
 _REF_HEADER_RE = re.compile(r'^\s*(references?|bibliography|sources?|works cited)\s*:?\s*$', re.I)
+# "References:" header + plain-numbered entries ("1. Trichopoulou, A., ...") --
+# the second format observed live. Only trusted when the header is present,
+# so an ordinary numbered list in an answer is never mistaken for one.
+_REF_ENTRY_NUM_RE = re.compile(r'^\s*(\d{1,2})\.\s+["“]?[A-Z]')
 _REF_CONTENT_RE = re.compile(r'et al|,\s+[A-Z]\.|vol\.|no\.\s*\d|pp\.|\bdoi\b|journal', re.I)
 
 
@@ -904,6 +908,14 @@ def _strip_model_reference_list(text, n_sources):
         return text
     lines = text.rstrip().split("\n")
     entry_idx = [j for j, ln in enumerate(lines) if _REF_ENTRY_RE.match(ln)]
+    entry_re = _REF_ENTRY_RE
+    if not entry_idx:
+        # Numbered style: only entries BELOW a References-style header count.
+        hdr = [j for j, ln in enumerate(lines) if _REF_HEADER_RE.match(ln.strip())]
+        if hdr:
+            entry_idx = [j for j, ln in enumerate(lines)
+                         if j > hdr[-1] and _REF_ENTRY_NUM_RE.match(ln)]
+            entry_re = _REF_ENTRY_NUM_RE
     if not entry_idx:
         return text
     # The bibliography lives at the end: the last entry may be followed only by
@@ -926,7 +938,7 @@ def _strip_model_reference_list(text, n_sources):
     block_lines = lines[start:]
     if len(block_lines) > 15:
         return text
-    nums = [int(_REF_ENTRY_RE.match(ln).group(1)) for ln in block_lines if _REF_ENTRY_RE.match(ln)]
+    nums = [int(entry_re.match(ln).group(1)) for ln in block_lines if entry_re.match(ln)]
     if not nums or any(n < 1 or n > n_sources for n in nums):
         return text
     if not _REF_CONTENT_RE.search("\n".join(block_lines)):
