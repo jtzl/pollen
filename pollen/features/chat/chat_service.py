@@ -84,12 +84,13 @@ def _self_repeat_start(text, window):
 
 def _runon_limit(tail, unpunct_limit, punct_limit):
     """Length a sentence-less tail may reach before the run-on backstop cuts it.
-    A degenerate word chain has no internal punctuation and gets the short
-    limit. A tail with several commas / parentheses / brackets is a long but
-    structured sentence (e.g. "In a randomized trial (n=90) [1], researchers
-    found ...") and gets the longer one, so real prose is not cut mid-sentence."""
+    A degenerate word chain has NO internal punctuation at all and gets the
+    short limit. Any comma / parenthesis / bracket marks a structured sentence
+    (formal prose can run 300 chars on a single comma -- an NEJM-style trial
+    sentence was cut that way) and gets the longer one, so real prose is not
+    cut mid-sentence."""
     marks = sum(tail.count(c) for c in ",;:()[]")
-    return punct_limit if marks >= 3 else unpunct_limit
+    return punct_limit if marks >= 1 else unpunct_limit
 
 
 class ChatService:
