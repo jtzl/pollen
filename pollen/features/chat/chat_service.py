@@ -52,6 +52,36 @@ def _last_sentence_end(text):
     return last
 
 
+def _self_repeat_start(text, window):
+    """If the last `window` characters of `text` already occur earlier in it,
+    return the index where that final repeat begins; otherwise -1. Compared on
+    lowercased, whitespace-collapsed text so a loop is caught even when spacing
+    drifts. Only the model's own answer is passed in, never the prompt, so
+    quoting the sources or the question is unaffected."""
+    if window <= 0 or len(text) < window * 2:
+        return -1
+    norm = []
+    back = []          # norm index -> index in text
+    prev_space = False
+    for i, ch in enumerate(text):
+        if ch.isspace():
+            if prev_space:
+                continue
+            ch = " "
+            prev_space = True
+        else:
+            prev_space = False
+        norm.append(ch.lower())
+        back.append(i)
+    if len(norm) < window * 2:
+        return -1
+    norm = "".join(norm)
+    tail = norm[-window:]
+    if norm.find(tail, 0, len(norm) - window) < 0:
+        return -1
+    return back[len(norm) - window]
+
+
 def _runon_limit(tail, unpunct_limit, punct_limit):
     """Length a sentence-less tail may reach before the run-on backstop cuts it.
     A degenerate word chain has no internal punctuation and gets the short
@@ -282,6 +312,22 @@ class ChatService:
                     outputs = combined[len(all_outputs):] if len(combined) > len(all_outputs) else ""
                     logger.info("ws.generate.runon_backstop fired gen=%d cut_at=%d final_len=%d"
                                 % (total_generated, _lp, len(combined)))
+            # BACKSTOP 4: self-repetition. If the answer's tail repeats an earlier
+            # part of the SAME answer, the model is looping; stop and keep only the
+            # complete sentences before the repeat. Looks at the answer alone, so
+            # (unlike no_repeat_ngram_size) it never blocks text copied from the prompt.
+            if not stop:
+                _rs = _self_repeat_start(combined, getattr(self.config, "WS_REPEAT_WINDOW_CHARS", 80))
+                if _rs >= 0:
+                    _keep = _last_sentence_end(combined[:_rs])
+                    if _keep > 0:
+                        stop = True
+                        _hit_extra = True   # bypass the min-tokens floor
+                        _runon_cut = True   # attach sources even if inline cites were lost
+                        combined = combined[:_keep]
+                        outputs = combined[len(all_outputs):] if len(combined) > len(all_outputs) else ""
+                        logger.info("ws.generate.repeat_backstop fired gen=%d repeat_at=%d final_len=%d"
+                                    % (total_generated, _rs, len(combined)))
             # HARD LIMIT check after generation
             if total_generated >= max_total_tokens:
                 stop = True
