@@ -18,6 +18,7 @@ first use.
 Response bodies are rendered to match Flask's jsonify byte-for-byte
 (json.dumps with sort_keys=True and compact separators, plus a trailing newline).
 """
+import collections
 import json
 import logging
 import os
@@ -637,6 +638,42 @@ async def ws_api_generate(websocket: WebSocket):
             pass
 
 
+# ---- External API protection for /api/v1/generate (key + rate limit) ----
+# The bots call 127.0.0.1:5001 directly, so their requests carry no
+# X-Forwarded-For; Caddy stamps XFF onto everything it proxies, so XFF presence
+# means the caller is external. An external caller cannot strip the header
+# (Caddy appends its own), and uvicorn is bound to loopback, so the only way
+# to look local is to be local.
+_api_hits: dict = {}            # client id -> deque of recent request times
+_api_hits_lock = threading.Lock()
+
+
+def _api_client(request):
+    """(client_id, is_external) for an incoming request."""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip(), True
+    host = request.client.host if request.client else "?"
+    return host, host not in ("127.0.0.1", "::1")
+
+
+def _api_rate_limited(client, limit):
+    """Sliding 60s window per client. Also prunes dead clients so the map
+    cannot grow without bound under scanning traffic."""
+    now = time.time()
+    with _api_hits_lock:
+        if len(_api_hits) > 4096:
+            for key in [k for k, dq in _api_hits.items() if not dq or dq[-1] < now - 300]:
+                _api_hits.pop(key, None)
+        dq = _api_hits.setdefault(client, collections.deque())
+        while dq and dq[0] < now - 60:
+            dq.popleft()
+        if len(dq) >= limit:
+            return True
+        dq.append(now)
+        return False
+
+
 @app.post("/api/v1/generate")
 async def api_v1_generate(request: Request):
     """Async port of pollen.features.chat.http_api.http_api_generate, via
@@ -649,6 +686,22 @@ async def api_v1_generate(request: Request):
         return FlaskJSONResponse(
             {"ok": False, "error": "model not loaded (POLLEN_LOAD_MODEL not set on this process)"},
             status_code=503)
+
+    # External callers: valid key when keys are configured, rate limit always.
+    # Checked before any heavy work; loopback (the bots) skips both.
+    _client, _external = _api_client(request)
+    if _external:
+        _keys = getattr(config, "API_KEYS", frozenset())
+        if _keys:
+            _auth = request.headers.get("authorization", "")
+            _key = _auth[7:].strip() if _auth.lower().startswith("bearer ") else request.headers.get("x-api-key", "")
+            if _key not in _keys:
+                return FlaskJSONResponse(
+                    {"ok": False, "error": "missing or invalid API key"}, status_code=401)
+        if _api_rate_limited(_client, getattr(config, "API_RATE_LIMIT", 6)):
+            log.warning("api_v1_generate rate limited client=%s", _client)
+            return FlaskJSONResponse(
+                {"ok": False, "error": "rate limited, try again in a minute"}, status_code=429)
 
     # Merge args the way Flask's get_typed_arg reads them (values over json body).
     query = dict(request.query_params)

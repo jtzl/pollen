@@ -74,6 +74,18 @@ FACTUAL_TEMPERATURE = float(os.getenv("FACTUAL_TEMPERATURE", "0.7"))
 # blocked until its NVIDIA driver/library mismatch is resolved.
 MAX_SESSION_LENGTH = int(os.getenv("MAX_SESSION_LENGTH", "2048"))
 
+# ==================== External API access ====================
+# Keys for EXTERNAL calls to POST /api/v1/generate. External = the request
+# arrived through Caddy (which always adds X-Forwarded-For); direct loopback
+# callers -- the IRC/Matrix bots on the hub -- never need a key. Empty (the
+# default) keeps the endpoint open, the pre-2026-10-18 behavior; set a
+# comma-separated list in the hub .env before linking the API anywhere public.
+API_KEYS = frozenset(k.strip() for k in os.getenv("POLLEN_API_KEYS", "").split(",") if k.strip())
+# Per-client rate limit for external /api/v1/generate calls, requests per
+# minute, enforced with or without keys. Generation takes ~30-60s, so 6/min
+# already exceeds what one honest client can consume.
+API_RATE_LIMIT = int(os.getenv("API_RATE_LIMIT", "6"))
+
 # ==================== Network Settings ====================
 _peers_env = os.getenv("DHT_INITIAL_PEERS", "")
 INITIAL_PEERS = [p.strip() for p in _peers_env.split(",") if p.strip()] if _peers_env else []
