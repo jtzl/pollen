@@ -287,4 +287,24 @@ if [ -n "$FAILURES" ] && [ "$ALERT_EMAIL_ENABLED" = "true" ]; then
     fi
 fi
 
+# One-line health verdict for humans: `cat /var/log/pollen-health.status`.
+# There is deliberately NO alert delivery (operator decision 2026-10-18):
+# the state is checked by looking, at the start of every work session, so
+# this file makes the look instant - last verdict, coverage, peer count,
+# and any failures from this run.
+HEALTH_FILE="/var/log/pollen-health.status"
+if [ -n "${COV_NOW:-}" ] && [ -n "${COV_TOT:-}" ]; then
+    HSUM="coverage=${COV_NOW}/${COV_TOT} peers=${PEERS_NOW:-?}"
+else
+    HSUM="coverage=unknown"
+fi
+if [ -n "$FAILURES" ]; then
+    printf '%s
+' "[$TIMESTAMP] PROBLEM $HSUM :: $(echo -e "$FAILURES" | tr '
+' ' ' | cut -c1-400)" | sudo tee "$HEALTH_FILE" >/dev/null
+else
+    printf '%s
+' "[$TIMESTAMP] OK $HSUM" | sudo tee "$HEALTH_FILE" >/dev/null
+fi
+
 log "--- Health check complete ---"
