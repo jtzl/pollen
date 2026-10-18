@@ -136,6 +136,46 @@ def _reformulate_query(query):
     return variants[:2]  # capped at 2 for token budget
 
 
+def _title_dedupe_key(title):
+    """Normalized key for cross-source duplicate detection: the same paper
+    arrives as a scholarly result ("Title (Journal, 2022)"), a publisher page
+    ("Title | Nature") and a PubMed/PMC page ("Title - PMC"). Strip one
+    trailing parenthetical and everything after a trailing separator, keep
+    lowercase alphanumerics, and require enough length that short generic
+    titles ("Intermittent fasting") never collide. Returns '' when too short
+    to be safe."""
+    t = (title or "").strip()
+    t = _re.sub(r"\s*\([^()]*\)\s*$", "", t)          # trailing "(venue, year)"
+    t = _re.split(r"\s+[|—-]\s+", t)[0]           # trailing "| site" / "- PMC"
+    key = _re.sub(r"[^a-z0-9]+", "", t.lower())
+    return key[:70] if len(key) >= 25 else ""
+
+
+def _dedupe_cross_source(results):
+    """Drop results that are the same work fetched through different doors.
+    The scholarly copy wins over a web copy (clean title, abstract, trust
+    flag); otherwise the earlier (higher-ranked) copy wins."""
+    by_key = {}
+    out = []
+    for r in results:
+        key = _title_dedupe_key(r.get("title"))
+        if not key:
+            out.append(r)
+            continue
+        if key in by_key:
+            prev = by_key[key]
+            if r.get("_scholarly") and not prev.get("_scholarly"):
+                out[out.index(prev)] = r
+                by_key[key] = r
+                log.info("RAG cross-source dedupe: replaced web copy with paper: %s", r.get("title", "")[:70])
+            else:
+                log.info("RAG cross-source dedupe: dropped duplicate: %s", r.get("title", "")[:70])
+            continue
+        by_key[key] = r
+        out.append(r)
+    return out
+
+
 def is_enabled():
     return RAG_ENABLED
 
@@ -310,6 +350,8 @@ def search(query, max_results=None):
         except Exception as se:
             log.warning("RAG scholarly merge failed for query=%r: %s", query, se)
 
+        results = _dedupe_cross_source(results)
+
         keywords = _extract_keywords(query)
         scored = []
         dropped = 0
@@ -450,6 +492,16 @@ def search(query, max_results=None):
         # Enrich: fetch each URL and extract up to RAG_FETCH_CHARS of relevant paragraphs
         enrich_start = time.time()
         results = _enrich_results(results, query)
+        # A pill titled with its own bare domain says nothing (seen live:
+        # "pubmed.ncbi.nlm.nih.gov"). After enrichment had its chance to find a
+        # real page title, drop such results while enough remain.
+        _titled = [r for r in results
+                   if _re.sub(r"[^a-z0-9]+", "", (r.get("title") or "").lower())
+                   != _re.sub(r"[^a-z0-9]+", "", _domain_of(r.get("url", "")))]
+        if _titled and len(_titled) >= min(3, len(results)):
+            if len(_titled) != len(results):
+                log.info("RAG dropped %d bare-domain-title result(s)", len(results) - len(_titled))
+            results = _titled
         log.info("RAG enrichment complete: %d results, %.1fs", len(results), time.time() - enrich_start)
 
         # Cross-encoder rerank (CPU), WITHIN source_rank tier. Runs on the final
