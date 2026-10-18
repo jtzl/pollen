@@ -51,6 +51,19 @@ static/test_results.txt
 
 # Local-only operational skill / cheat-sheet (never commit or push)
 SKILL.md
+.claude/
+
+# Local-only project context for Claude (never commit or push)
+CLAUDE.md
+
+# Local-only daily work log (never commit or push)
+DAILY_LOG.md
+
+# Local-only client correspondence log (private, never commit or push)
+JT_LOG.md
+
+# Local-only credentials notes (never commit or push)
+SECRETS.local.md
 
 # Logs
 *.log
