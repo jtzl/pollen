@@ -102,16 +102,42 @@ try:
     for n in d.get('nodes', []):
         if n.get('name') == 'EC2 (A10G)':
             nb = n.get('num_blocks')
-            print(int(nb) if nb else 'unknown')
+            # 'absent' = status answered but the hub announces no blocks: the
+            # loaded-but-silent wedge (seen 2026-10-11..18, a week undetected).
+            print(int(nb) if nb else 'absent')
             break
     else:
-        print('unknown')
+        print('absent')
 except Exception:
-    print('unknown')
+    print('noapi')
 " 2>/dev/null)
-        if [ "$EC2_BLOCKS" = "unknown" ] || [ -z "$EC2_BLOCKS" ]; then
-            log "WARN: could not determine EC2 peer block count from /api/status (skipping coverage check)"
-            rm -f "$LOWCOUNT_FILE"   # transient/None reading -> reset consecutive-low streak
+        if [ "$EC2_BLOCKS" = "noapi" ] || [ -z "$EC2_BLOCKS" ]; then
+            log "WARN: /api/status unreadable (skipping coverage check; stage 1 owns the API)"
+            rm -f "$LOWCOUNT_FILE"   # transient reading -> reset consecutive-low streak
+        elif [ "$EC2_BLOCKS" = "absent" ]; then
+            # The hub server is up but SILENT on the DHT: a restart recovers it.
+            # Same consecutive-reading rule and the same driver guard as the
+            # low-coverage branch below.
+            LOW_STREAK=$(( $(cat "$LOWCOUNT_FILE" 2>/dev/null || echo 0) + 1 ))
+            echo "$LOW_STREAK" > "$LOWCOUNT_FILE"
+            if [ "$LOW_STREAK" -lt "$SERVER_LOW_STREAK" ]; then
+                log "WARN: petals-server active but announcing NO blocks (reading $LOW_STREAK/$SERVER_LOW_STREAK) - deferring restart"
+            elif ! nvidia-smi -L >/dev/null 2>&1; then
+                log "CRITICAL: petals-server silent on the DHT AND nvidia-smi fails (driver mismatch). Restart SUPPRESSED: a fresh process would be CPU-only and crash-loop. Needs planned driver maintenance."
+                record_failure "petals-server" "Silent on DHT with NVIDIA driver/library mismatch" "Auto-restart suppressed; manual maintenance required"
+                rm -f "$LOWCOUNT_FILE"
+            else
+                log "FAIL: petals-server active but silent on the DHT for $LOW_STREAK consecutive checks (loaded-but-not-announcing wedge). Restarting..."
+                sudo systemctl restart petals-server
+                if [ $? -eq 0 ]; then
+                    log "RESTART: petals-server restarted to recover DHT announcements"
+                    record_failure "petals-server" "Active but silent on the DHT for $LOW_STREAK consecutive checks" "Restarted petals-server (success)"
+                else
+                    log "ERROR: Failed to restart petals-server for silent-wedge recovery"
+                    record_failure "petals-server" "Active but silent on the DHT" "Restart attempted but failed"
+                fi
+                rm -f "$LOWCOUNT_FILE"
+            fi
         elif [ "$EC2_BLOCKS" -lt "$SERVER_MIN_BLOCKS" ] 2>/dev/null; then
             # Require SERVER_LOW_STREAK consecutive low readings (~5 min apart) before
             # restarting, so a single bad /api/status snapshot can't bounce the hub.
