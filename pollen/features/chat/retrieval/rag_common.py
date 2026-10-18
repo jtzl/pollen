@@ -45,6 +45,15 @@ _DEPRIORITIZED_DEFAULTS = (
     "youtube.com",
     "x.com",
     "twitter.com",
+    # Homework Q&A / study-notes sites: keyword-stuffed titles let them outrank
+    # real sources (a brainly.com answer ranked above a peer-reviewed paper on a
+    # sleep-deprivation question, 2026-10-18). Deprioritized, not blocked, per
+    # the positive-curation philosophy: they still surface if nothing better exists.
+    "brainly.com",
+    "chegg.com",
+    "coursehero.com",
+    "studocu.com",
+    "quizlet.com",
 )
 _DEPRIORITIZED_ENV = tuple(d.strip().lower() for d in os.getenv("DEPRIORITIZED_SOURCES", "").split(",") if d.strip())
 # Merge defaults + env, de-duped, preserving order (defaults first).
