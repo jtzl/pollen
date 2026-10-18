@@ -199,10 +199,22 @@ def api_curated_sources():
 # ---------------------------------------------------------------------------
 # image routes -- logic ported from image_api.py
 # ---------------------------------------------------------------------------
+# One image takes minutes of compute, so external callers get a strict
+# per-client budget. No key requirement: the web page's image panel calls
+# this anonymously from browsers. Local callers are exempt as usual.
+IMAGE_RATE_LIMIT = int(os.getenv("IMAGE_RATE_LIMIT", "2"))
+
+
 @app.post("/api/generate-image")
 async def api_generate_image(request: Request):
     if not image_gen.is_enabled():
         return FlaskJSONResponse({"ok": False, "error": "Image generation is disabled"}, status_code=503)
+
+    _client, _external = _api_client(request)
+    if _external and _api_rate_limited("img:" + _client, IMAGE_RATE_LIMIT):
+        log.warning("generate-image rate limited client=%s", _client)
+        return FlaskJSONResponse(
+            {"ok": False, "error": "rate limited, try again in a minute"}, status_code=429)
 
     # Flask: (request.json or {}).get("prompt","").strip() if request.is_json
     #        else request.form.get("prompt","").strip()
