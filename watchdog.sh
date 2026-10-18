@@ -295,11 +295,20 @@ if ! systemctl is-active --quiet petals-dht; then
     fi
 fi
 
-# --- 5) Check tunnel port 31331 ---
-if ! ss -tln | grep -q ':31331 '; then
-    log "WARN: Tunnel port 31331 is not listening (physical node may be disconnected)"
-    record_failure "petals-tunnel" "Port 31331 not listening on EC2" "No local action taken (tunnel is managed by physical node)"
-fi
+# --- 5) Check all four reverse-tunnel ports ---
+# Each node dials in with two tunnels: one for its Petals traffic, one for
+# SSH access from the hub. A missing port means that node's machine is
+# offline or its tunnel service died; detect-only, the node owns the dial.
+check_tunnel() { # port, label
+    if ! ss -tln | grep -q ":$1 "; then
+        log "WARN: Tunnel port $1 not listening ($2 - node offline or its tunnel service died)"
+        record_failure "tunnel-$1" "Port $1 ($2) not listening on EC2" "No local action taken (tunnels are dialed by the node)"
+    fi
+}
+check_tunnel 31331 "3090 petals"
+check_tunnel 31333 "3090 ssh"
+check_tunnel 31339 "4090 petals"
+check_tunnel 31332 "4090 ssh" 
 
 # --- Send email alert if there were failures ---
 if [ -n "$FAILURES" ] && [ "$ALERT_EMAIL_ENABLED" = "true" ]; then
