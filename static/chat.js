@@ -1164,5 +1164,18 @@ function renderSources(data) {
   renderChatHistory();
 
   inputEl.focus();
+
+  // Prefill from a shared link: pollen.organized.info/?q=your+question opens
+  // the page with the question typed in, ready to send. Deliberately NOT
+  // auto-submitted: a generation costs ~a minute of swarm compute, and link
+  // prefetchers/crawlers must never be able to trigger one.
+  try {
+    var prefill = new URLSearchParams(location.search).get('q');
+    if (prefill) {
+      inputEl.value = prefill.slice(0, 2000);
+      onInputChange(inputEl);
+    }
+  } catch (e) { /* old browsers: just no prefill */ }
+
   openSession().catch(function(err) { showError('Failed to connect: ' + err); });
 })();
