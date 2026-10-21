@@ -384,6 +384,24 @@ function addMessage(role, content, time) {
     });
   };
   actionsEl.appendChild(copyBtn);
+
+  // Share: copies a link that opens Pollen with this question and runs it
+  // (the ?q= prefill). Questions only - answers are regenerated fresh on the
+  // recipient's side, because nothing is ever stored on the server.
+  if (isUser) {
+    var shareBtn = document.createElement('button');
+    shareBtn.className = copyBtn.className;
+    shareBtn.textContent = 'Share';
+    shareBtn.title = 'Copy a link that asks Pollen this question';
+    shareBtn.onclick = function() {
+      var link = location.origin + '/?q=' + encodeURIComponent(content).replace(/%20/g, '+');
+      navigator.clipboard.writeText(link).then(function() {
+        shareBtn.textContent = 'Link copied!';
+        setTimeout(function() { shareBtn.textContent = 'Share'; }, 1500);
+      });
+    };
+    actionsEl.appendChild(shareBtn);
+  }
   meta.appendChild(actionsEl);
   col.appendChild(meta);
 
