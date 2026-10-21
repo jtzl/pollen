@@ -28,12 +28,23 @@ record_failure() {
 # --- 1) Check Chat API ---
 # Post-cutover: the model-holder is the FastAPI process (pollen-fastapi) on 5001;
 # Flask/petals-chat is retired. Check FastAPI's /api/status and restart it if down.
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:5001/api/status 2>/dev/null)
+# Two consecutive failures required before restarting: a single missed tick
+# is usually a deploy restart in progress or a briefly busy process (seen
+# 2026-10-18/20: the service answered 200s seconds before a failed check, and
+# the recovery restart caused the only real outage). A genuinely dead service
+# is fixed at +10 min instead of +5; a slow tick costs nothing.
+FASTAPI_FAILCOUNT_FILE="/tmp/pollen_watchdog_fastapi_failcount"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 http://localhost:5001/api/status 2>/dev/null)
 
 if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ] 2>/dev/null; then
     log "OK: Chat API responded with HTTP $HTTP_CODE"
+    rm -f "$FASTAPI_FAILCOUNT_FILE"
+elif [ "$(cat "$FASTAPI_FAILCOUNT_FILE" 2>/dev/null || echo 0)" -lt 1 ]; then
+    echo 1 > "$FASTAPI_FAILCOUNT_FILE"
+    log "WARN: Chat API unresponsive (HTTP $HTTP_CODE), first miss - deferring restart one cycle"
 else
-    log "FAIL: Chat API unresponsive (HTTP $HTTP_CODE). Restarting ONLY pollen-fastapi (petals-server is checked separately)..."
+    rm -f "$FASTAPI_FAILCOUNT_FILE"
+    log "FAIL: Chat API unresponsive (HTTP $HTTP_CODE) for 2 consecutive checks. Restarting ONLY pollen-fastapi (petals-server is checked separately)..."
     sudo systemctl restart pollen-fastapi
     FASTAPI_EXIT=$?
     if [ $FASTAPI_EXIT -eq 0 ]; then
