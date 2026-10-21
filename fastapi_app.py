@@ -599,6 +599,21 @@ async def ws_api_generate(websocket: WebSocket):
                     break
                 assert request["type"] == "generate"
 
+                # Per-client generation budget for external callers, same sliding
+                # window as the HTTP API. This is what makes auto-submitting
+                # shared ?q= links safe without accounts; a human cannot exceed
+                # it (one answer takes ~a minute), floods and bots can. The
+                # 'out of capacity' wording maps to the page's friendly amber
+                # capacity message rather than the red error bar.
+                _xff = websocket.headers.get("x-forwarded-for")
+                if _xff and _api_rate_limited("ws:" + _xff.split(",")[0].strip(),
+                                              getattr(config, "API_RATE_LIMIT", 6)):
+                    log.warning("ws.generate rate limited client=%s", _xff.split(",")[0].strip())
+                    await websocket.send_text(json.dumps({
+                        "ok": False,
+                        "traceback": "Too many requests from this address - out of capacity, try again in a minute"}))
+                    continue
+
                 # Threadpool bridge (validated in scratch_ws_bridge_test.py): run the
                 # blocking generator in a worker thread; stream each frame as produced.
                 queue: asyncio.Queue = asyncio.Queue()

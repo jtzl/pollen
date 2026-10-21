@@ -1165,17 +1165,29 @@ function renderSources(data) {
 
   inputEl.focus();
 
-  // Prefill from a shared link: pollen.organized.info/?q=your+question opens
-  // the page with the question typed in, ready to send. Deliberately NOT
-  // auto-submitted: a generation costs ~a minute of swarm compute, and link
-  // prefetchers/crawlers must never be able to trigger one.
+  // Shared links: pollen.organized.info/?q=your+question opens with the
+  // question typed in and, once the connection is up, sends it (ChatGPT-style).
+  // Safe without accounts because: link-preview bots do not execute JS so they
+  // can never reach this code; ?q= pages are marked noindex for crawlers that
+  // do; and the server rate-limits generations per client as the backstop.
+  var prefillSend = false;
   try {
     var prefill = new URLSearchParams(location.search).get('q');
     if (prefill) {
       inputEl.value = prefill.slice(0, 2000);
       onInputChange(inputEl);
+      prefillSend = true;
+      var noindex = document.createElement('meta');
+      noindex.name = 'robots';
+      noindex.content = 'noindex';
+      document.head.appendChild(noindex);
     }
   } catch (e) { /* old browsers: just no prefill */ }
 
-  openSession().catch(function(err) { showError('Failed to connect: ' + err); });
+  openSession().then(function() {
+    if (prefillSend && inputEl.value.trim() && !generating) {
+      prefillSend = false;
+      sendMessage();
+    }
+  }).catch(function(err) { showError('Failed to connect: ' + err); });
 })();
