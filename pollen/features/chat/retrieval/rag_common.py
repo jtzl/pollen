@@ -54,6 +54,15 @@ _DEPRIORITIZED_DEFAULTS = (
     "coursehero.com",
     "studocu.com",
     "quizlet.com",
+    # Essay mills / student-essay repositories: same failure mode as the
+    # homework sites (keyword-stuffed titles outrank real sources; a
+    # gradesfixer.com essay ranked above Harvard Health on a sleep-memory
+    # question, 2026-11-01). Deprioritized, never blocked.
+    "gradesfixer.com",
+    "studydriver.com",
+    "enotes.com",
+    "bartleby.com",
+    "123helpme.com",
 )
 _DEPRIORITIZED_ENV = tuple(d.strip().lower() for d in os.getenv("DEPRIORITIZED_SOURCES", "").split(",") if d.strip())
 # Merge defaults + env, de-duped, preserving order (defaults first).
