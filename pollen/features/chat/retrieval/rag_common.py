@@ -63,6 +63,10 @@ _DEPRIORITIZED_DEFAULTS = (
     "enotes.com",
     "bartleby.com",
     "123helpme.com",
+    # Interactive-lesson site, same keyword-stuffed class: its "Why Do Cats
+    # Purr? Free Interactive Lesson" outreranked Scientific American and a
+    # Journal of Zoology paper on that exact question (2026-11-01).
+    "learnbuddy.sg",
 )
 _DEPRIORITIZED_ENV = tuple(d.strip().lower() for d in os.getenv("DEPRIORITIZED_SOURCES", "").split(",") if d.strip())
 # Merge defaults + env, de-duped, preserving order (defaults first).

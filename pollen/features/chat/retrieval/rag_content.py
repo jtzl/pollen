@@ -401,25 +401,33 @@ def _enrich_results(results, query):
     if not urls:
         return results
     workers = min(RAG_FETCH_WORKERS, len(urls))
+    ex = ThreadPoolExecutor(max_workers=workers)
     try:
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            futures = {ex.submit(_fetch_page_text, url, query): i for i, url in urls}
-            for fut in as_completed(futures, timeout=RAG_FETCH_TIMEOUT * 2 + 4):
-                i = futures[fut]
-                try:
-                    extracted = fut.result()
-                except Exception as e:
-                    log.debug("RAG fetch future error idx=%d: %s", i, e)
-                    continue
-                if isinstance(extracted, tuple):
-                    page_text, page_title = extracted
-                else:
-                    page_text, page_title = (extracted or ""), ""
-                if page_text:
-                    results[i]["snippet"] = page_text
-                if page_title:
-                    results[i]["title"] = page_title
-                # else: keep original DDG snippet/title as fallback
+        futures = {ex.submit(_fetch_page_text, url, query): i for i, url in urls}
+        for fut in as_completed(futures, timeout=RAG_FETCH_TIMEOUT * 2 + 4):
+            i = futures[fut]
+            try:
+                extracted = fut.result()
+            except Exception as e:
+                log.debug("RAG fetch future error idx=%d: %s", i, e)
+                continue
+            if isinstance(extracted, tuple):
+                page_text, page_title = extracted
+            else:
+                page_text, page_title = (extracted or ""), ""
+            if page_text:
+                results[i]["snippet"] = page_text
+            if page_title:
+                results[i]["title"] = page_title
+            # else: keep original DDG snippet/title as fallback
     except Exception as e:
         log.warning("RAG enrichment partial failure: %s", e)
+    finally:
+        # Never wait for a hung fetch. The old `with ThreadPoolExecutor`
+        # shutdown waits for every thread, so one slow-drip page (socket
+        # alive, bytes trickling) blocked the whole answer ~60s past the
+        # as_completed timeout (seen live 2026-11-01, 'why do cats purr').
+        # The straggler keeps its DDG snippet and the thread finishes in
+        # the background.
+        ex.shutdown(wait=False, cancel_futures=True)
     return results
