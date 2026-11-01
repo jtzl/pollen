@@ -114,6 +114,89 @@ def random_greeting_response():
     return _random.choice(GREETING_RESPONSES)
 
 
+# --- Follow-up search contextualization --------------------------------------
+# In a multi-turn chat a follow-up like "what about in children?" used to be
+# searched verbatim, with no topic words at all, so the results went off-topic.
+# When the last message looks anaphoric, the SEARCH QUERY (never the prompt)
+# gets the content words of the preceding question(s) appended. Detection errs
+# narrow: a self-contained question must pass through unchanged.
+
+_FOLLOWUP_OPENER_RE = re.compile(
+    r"^\s*(and|but|also|then|so|what about|how about|what if|why not|ok(?:ay)? but)\b"
+    r"|^\s*(why|how|when|where|who|what)\s*\??\s*$",
+    re.IGNORECASE)
+
+_FOLLOWUP_PRONOUN_RE = re.compile(
+    r"\b(it|its|that|those|these|they|them|their|this|he|she|him|her|the same)\b",
+    re.IGNORECASE)
+
+_SEARCH_STOPWORDS = frozenset(
+    ("the a an and or but of in on at to for with about from by as is are was "
+     "were be been being do does did have has had will would can could should "
+     "may might what which who whom when where why how any some many much more "
+     "most other same so than then too very just also there here you your i we "
+     "my our me us they them their it its he she him her his hers this that "
+     "these those not no yes if else over under again new old tell say please "
+     "give show me latest recent current news").split())
+
+
+def _content_terms(text, limit=6):
+    """First `limit` distinct non-stopword terms of 3+ chars, in text order."""
+    terms, seen = [], set()
+    for w in re.findall(r"[A-Za-z][A-Za-z0-9'-]{2,}", text or ""):
+        lw = w.lower()
+        if lw in _SEARCH_STOPWORDS or lw in seen:
+            continue
+        seen.add(lw)
+        terms.append(w)
+        if len(terms) >= limit:
+            break
+    return terms
+
+
+def is_followup(message):
+    """True when a message likely leans on the previous turn for its topic:
+    an anaphoric opener ("and ...", "what about ...", bare "why?"), or a short
+    message (<= 10 words) that contains a pronoun."""
+    t = (message or "").strip()
+    if not t:
+        return False
+    if _FOLLOWUP_OPENER_RE.search(t):
+        return True
+    return len(t.split()) <= 10 and bool(_FOLLOWUP_PRONOUN_RE.search(t))
+
+
+def _contextualize_followup(user_messages, limit=6):
+    """Search query for the LAST of `user_messages` (all user turns, oldest
+    first): unchanged unless it is a follow-up, in which case up to `limit`
+    content words from the preceding question(s) are appended, walking back
+    through consecutive follow-ups to the question that set the topic."""
+    if not user_messages:
+        return ""
+    last = user_messages[-1]
+    if len(user_messages) == 1 or not is_followup(last):
+        return last
+    own = {w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9'-]{2,}", last)}
+    terms = []
+    for prev in reversed(user_messages[:-1]):
+        for w in _content_terms(prev, limit):
+            if w.lower() in own or len(terms) >= limit:
+                continue
+            own.add(w.lower())
+            terms.append(w)
+        if (terms and not is_followup(prev)) or len(terms) >= limit:
+            break  # reached the question that set the topic, or enough terms
+    if not terms:
+        return last
+    return last.rstrip() + " " + " ".join(terms)
+
+
+def contextualized_query(full_prompt):
+    """The search query for the last user turn of a (possibly multi-turn)
+    prompt. Same as extract_user_message unless that turn is a follow-up."""
+    return _contextualize_followup(prompt_format.extract_user_messages(full_prompt))
+
+
 
 # --- Back-compat aliases (do not remove — other code may import these) ---
 _CURRENT_INFO_PATTERNS = _FACTUAL_PATTERNS

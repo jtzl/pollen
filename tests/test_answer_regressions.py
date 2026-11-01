@@ -200,11 +200,18 @@ class SelfRepeatBackstop(unittest.TestCase):
 
 def _load_rag_pipeline_helpers():
     """rag_pipeline imports the retrieval stack (requests, dotenv), so load its
-    pure prompt-fitting helpers by source extraction, like the chat_service ones."""
+    pure helpers by source extraction, like the chat_service ones."""
     import logging
     src = (REPO / "pollen" / "features" / "chat" / "rag_pipeline.py").read_text(encoding="utf-8")
-    ns = {"log": logging.getLogger("test"), "_CHARS_PER_TOKEN": 3, "_PROMPT_TOKEN_BUDGET": 2200}
-    for name in ("_estimate_tokens", "format_context", "_fit_prompt_to_budget"):
+    ns = {"log": logging.getLogger("test"), "re": re,
+          "_CHARS_PER_TOKEN": 3, "_PROMPT_TOKEN_BUDGET": 2200}
+    for name in ("_FOLLOWUP_OPENER_RE", "_FOLLOWUP_PRONOUN_RE", "_SEARCH_STOPWORDS"):
+        m = re.search(r"^%s = .*?(?=^\S)" % name, src, re.S | re.M)
+        if not m:
+            raise AssertionError("constant %s not found in rag_pipeline.py (renamed?)" % name)
+        exec(m.group(0), ns)
+    for name in ("_estimate_tokens", "format_context", "_fit_prompt_to_budget",
+                 "_content_terms", "is_followup", "_contextualize_followup"):
         m = re.search(r"^def %s\(.*?(?=^\S)" % name, src, re.S | re.M)
         if not m:
             raise AssertionError("helper %s not found in rag_pipeline.py (renamed?)" % name)
@@ -256,6 +263,56 @@ class ContextBudgetFitting(unittest.TestCase):
         fitted, _ = fit(prompt, block)
         self.assertIn("context truncated", fitted)
         self.assertIn("[End of Search Results]", fitted)
+
+
+class FollowupSearchQuery(unittest.TestCase):
+    """Follow-ups must search with the previous question's topic words; a
+    self-contained question must pass through UNCHANGED."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ns = _load_rag_pipeline_helpers()
+
+    def _q(self, msgs):
+        return self.ns["_contextualize_followup"](msgs)
+
+    def test_followup_gets_topic_terms(self):
+        q = self._q(["what does research say about sleep deprivation and memory",
+                     "what about in children?"])
+        self.assertTrue(q.startswith("what about in children?"))
+        for term in ("sleep", "deprivation", "memory"):
+            self.assertIn(term, q)
+
+    def test_pronoun_followup_detected(self):
+        q = self._q(["effects of the mediterranean diet on heart disease",
+                     "does it help with depression"])
+        self.assertIn("mediterranean", q)
+        self.assertIn("diet", q)
+
+    def test_chain_of_followups_reaches_topic_question(self):
+        q = self._q(["effects of sleep deprivation on memory",
+                     "what about in children?",
+                     "and in teenagers?"])
+        self.assertTrue(q.startswith("and in teenagers?"))
+        self.assertIn("sleep", q)
+
+    def test_self_contained_question_unchanged(self):
+        msg = "what is the population of france"
+        self.assertEqual(self._q(["tell me about the roman empire", msg]), msg)
+
+    def test_single_message_unchanged(self):
+        msg = "what about ethics in journalism"
+        self.assertEqual(self._q([msg]), msg)
+
+    def test_long_standalone_with_pronoun_unchanged(self):
+        msg = ("how did the roman empire manage the logistics of feeding its "
+               "legions during extended military campaigns far from home")
+        self.assertEqual(self._q(["unrelated earlier question about gardening", msg]), msg)
+
+    def test_bare_why_gets_context(self):
+        q = self._q(["why do cats purr", "why?"])
+        self.assertIn("cats", q)
+        self.assertIn("purr", q)
 
 
 if __name__ == "__main__":

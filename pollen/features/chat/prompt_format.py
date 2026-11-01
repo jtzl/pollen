@@ -127,6 +127,21 @@ _INST_RE = re.compile(r'\[INST\]\s*(.*?)\s*\[/INST\]', re.DOTALL)
 _CHATML_USER_RE = re.compile(r'<\|im_start\|>user\n(.*?)<\|im_end\|>', re.DOTALL)
 
 
+def extract_user_messages(prompt):
+    """All user messages in prompt order, [INST] or ChatML, each cleaned the
+    same way extract_user_message cleans the last one (the '\\n\\n'-split tail,
+    so a server-side injected context block never leaks into the result)."""
+    raw = _INST_RE.findall(prompt or "")
+    if not raw:
+        raw = _CHATML_USER_RE.findall(prompt or "")
+    out = [m.strip().split('\n\n')[-1].strip() for m in raw]
+    out = [m for m in out if m]
+    if out:
+        return out
+    single = extract_user_message(prompt)
+    return [single] if single else []
+
+
 def extract_user_message(prompt):
     """Extract the last user message from an [INST] OR a ChatML prompt.
 

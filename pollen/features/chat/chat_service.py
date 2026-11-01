@@ -174,7 +174,13 @@ class ChatService:
                     and rag_pipeline.classify_query(user_msg) == "factual":
                 _eff_temp = self.config.FACTUAL_TEMPERATURE
             if rag_pipeline.needs_search(user_msg):
-                search_results = rag_search.search_with_refine(user_msg)
+                # Follow-ups ("what about in children?") search with the topic
+                # words of the previous question(s) appended; the prompt itself
+                # is untouched.
+                search_query = rag_pipeline.contextualized_query(inputs)
+                if search_query != user_msg:
+                    logger.info(f"ws.generate follow-up search: {user_msg!r} -> {search_query!r}")
+                search_results = rag_search.search_with_refine(search_query)
                 if search_results:
                     inputs = rag_pipeline.augment_prompt_in_place(inputs, search_results)
                     rag_sources = search_results
