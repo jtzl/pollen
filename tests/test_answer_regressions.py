@@ -198,5 +198,65 @@ class SelfRepeatBackstop(unittest.TestCase):
         self.assertEqual(_self_repeat_start("Yes.", 80), -1)
 
 
+def _load_rag_pipeline_helpers():
+    """rag_pipeline imports the retrieval stack (requests, dotenv), so load its
+    pure prompt-fitting helpers by source extraction, like the chat_service ones."""
+    import logging
+    src = (REPO / "pollen" / "features" / "chat" / "rag_pipeline.py").read_text(encoding="utf-8")
+    ns = {"log": logging.getLogger("test"), "_CHARS_PER_TOKEN": 3, "_PROMPT_TOKEN_BUDGET": 2200}
+    for name in ("_estimate_tokens", "format_context", "_fit_prompt_to_budget"):
+        m = re.search(r"^def %s\(.*?(?=^\S)" % name, src, re.S | re.M)
+        if not m:
+            raise AssertionError("helper %s not found in rag_pipeline.py (renamed?)" % name)
+        exec(m.group(0), ns)
+    return ns
+
+
+class ContextBudgetFitting(unittest.TestCase):
+    """Every retrieved source must reach the prompt (bug: the old tail-chop cut
+    the lower-ranked sources out of the prompt while their pills still showed)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ns = _load_rag_pipeline_helpers()
+        cls.results = [
+            {"title": "Result %d" % i,
+             "snippet": ("Fact %d. " % i) + ("evidence detail " * 60),
+             "url": "https://example%d.org/article" % i}
+            for i in range(1, 9)
+        ]
+
+    def test_under_budget_block_unchanged(self):
+        fc = self.ns["format_context"]
+        self.assertEqual(fc(self.results), fc(self.results, max_chars=10**6))
+
+    def test_trim_keeps_all_sources_numbered(self):
+        block = self.ns["format_context"](self.results, max_chars=3000)
+        for i in range(1, 9):
+            self.assertIn("\n%d. Result %d" % (i, i), "\n" + block)
+            self.assertIn("Fact %d." % i, block)  # each snippet's head survives
+        self.assertLessEqual(len(block), 3200)  # share floor allows slight overshoot
+        self.assertIn("[End of Search Results]", block)
+
+    def test_fit_rebuilds_with_every_source_present(self):
+        fc, fit = self.ns["format_context"], self.ns["_fit_prompt_to_budget"]
+        block = fc(self.results)
+        prompt = "<|im_start|>user\n" + block + "\n\nInstruction text here.\nUser question: test<|im_end|>"
+        fitted, fitted_block = fit(prompt, block, self.results)
+        self.assertLess(len(fitted), len(prompt))
+        self.assertLessEqual(self.ns["_estimate_tokens"](fitted), 2200 + 40)
+        for i in range(1, 9):
+            self.assertIn("%d. Result %d" % (i, i), fitted)
+        self.assertNotIn("context truncated", fitted)
+
+    def test_fit_without_results_falls_back_to_tailchop(self):
+        fc, fit = self.ns["format_context"], self.ns["_fit_prompt_to_budget"]
+        block = fc(self.results)
+        prompt = "<|im_start|>user\n" + block + "\nUser question: test<|im_end|>"
+        fitted, _ = fit(prompt, block)
+        self.assertIn("context truncated", fitted)
+        self.assertIn("[End of Search Results]", fitted)
+
+
 if __name__ == "__main__":
     unittest.main()

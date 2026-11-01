@@ -1,6 +1,7 @@
 """RAG pipeline: detects queries needing current info, searches, and builds augmented prompts."""
 
 import logging
+import os
 import re
 
 from pollen.features.chat.retrieval import rag_search
@@ -127,12 +128,15 @@ def extract_user_message(prompt):
     return prompt_format.extract_user_message(prompt)
 
 
-# Prompt-size budget. The Petals server advertises a 2048-token KV cache
-# ceiling, so the augmented prompt must stay well under that to leave room
-# for generation. We target 1800 tokens for the full prompt sent to Mixtral.
-_KV_CEILING = 2048
-_OUTPUT_RESERVE = 700
-_PROMPT_TOKEN_BUDGET = _KV_CEILING - _OUTPUT_RESERVE
+# Prompt-size budget. The budget used to be derived from the servers' old
+# 2048-token KV ceiling (1348 tokens), which silently truncated the lower
+# half of the ranked sources out of the prompt while their pills still
+# showed on the page. Since 2026-10-11 every server accepts 8192
+# (MAX_SESSION_LENGTH), so the ceiling no longer binds; the budget is its
+# own dial. 2200 fits all RAG_MAX_RESULTS=8 sources with ~600-char
+# snippets. Raising it buys more context per source but slows prefill and
+# burns the 8192-token session in fewer conversation turns.
+_PROMPT_TOKEN_BUDGET = int(os.getenv("PROMPT_TOKEN_BUDGET", "2200"))
 # Conservative chars-per-token estimate for Mixtral's sentencepiece tokenizer
 # on English text (real tokenizer averages ~3.5 chars/token; we use 3 for safety).
 _CHARS_PER_TOKEN = 3
@@ -142,8 +146,14 @@ def _estimate_tokens(text):
     return (len(text) + _CHARS_PER_TOKEN - 1) // _CHARS_PER_TOKEN if text else 0
 
 
-def _fit_prompt_to_budget(full_prompt, context_block):
-    """Truncate context_block inside full_prompt so total estimated tokens <= budget.
+def _fit_prompt_to_budget(full_prompt, context_block, results=None):
+    """Shrink context_block inside full_prompt so total estimated tokens <= budget.
+
+    When `results` is given, the block is REBUILT with every snippet trimmed
+    to an even share, so every source keeps its [n] entry in the prompt (the
+    page numbers its pills from this same order; the old tail-chop silently
+    dropped the lower-ranked sources from the prompt while their pills still
+    showed). Without `results` it falls back to the tail-chop.
 
     Returns (fitted_prompt, fitted_context_block). If the context block is
     not present in full_prompt (or fits already), returns inputs unchanged.
@@ -161,12 +171,15 @@ def _fit_prompt_to_budget(full_prompt, context_block):
         # Overhead alone already too large; nothing more we can safely trim.
         return full_prompt, context_block
 
-    trimmed = context_block[:allowed_ctx]
-    # Cut at the last newline so we don't leave a half-line dangling
-    nl = trimmed.rfind("\n")
-    if nl > 200:
-        trimmed = trimmed[:nl]
-    trimmed = trimmed.rstrip() + "\n[... context truncated to fit token budget ...]\n[End of Search Results]\n"
+    if results:
+        trimmed = format_context(results, max_chars=allowed_ctx)
+    else:
+        trimmed = context_block[:allowed_ctx]
+        # Cut at the last newline so we don't leave a half-line dangling
+        nl = trimmed.rfind("\n")
+        if nl > 200:
+            trimmed = trimmed[:nl]
+        trimmed = trimmed.rstrip() + "\n[... context truncated to fit token budget ...]\n[End of Search Results]\n"
     new_prompt = full_prompt.replace(context_block, trimmed, 1)
     log.info("RAG prompt trimmed: %d->%d chars (~%d->%d tokens)",
              len(full_prompt), len(new_prompt),
@@ -280,7 +293,7 @@ def augment_prompt_in_place(full_prompt, results):
         + "User question: "
         + full_prompt[insert_pos:]
     )
-    fitted, _ = _fit_prompt_to_budget(built, context_block)
+    fitted, _ = _fit_prompt_to_budget(built, context_block, results)
     return fitted
 
 
@@ -322,17 +335,38 @@ def needs_search(message):
     return c != "skip"
 
 
-def format_context(results):
-    """Format search results into a context block for the LLM prompt."""
+def format_context(results, max_chars=None):
+    """Format search results into a context block for the LLM prompt.
+
+    max_chars: optional cap on the whole block. When the full block is over
+    it, every snippet is trimmed to an even share so ALL sources stay in the
+    prompt with their [n] numbers intact; sources are never dropped from the
+    tail (the page numbers its pills from this same order).
+    """
     if not results:
         return ""
-    lines = ["[Web Search Results]"]
-    for i, r in enumerate(results, 1):
-        lines.append(f"{i}. {r['title']}")
-        lines.append(f"   {r['snippet']}")
-        lines.append(f"   Source: {r['url']}")
-    lines.append("[End of Search Results]\n")
-    return "\n".join(lines)
+
+    def _build(snippet_cap):
+        lines = ["[Web Search Results]"]
+        for i, r in enumerate(results, 1):
+            snippet = r.get("snippet") or ""
+            if snippet_cap is not None and len(snippet) > snippet_cap:
+                cut = snippet[:snippet_cap].rsplit(" ", 1)[0]
+                snippet = (cut if len(cut) >= 60 else snippet[:snippet_cap]) + "…"
+            lines.append(f"{i}. {r.get('title', '')}")
+            lines.append(f"   {snippet}")
+            lines.append(f"   Source: {r.get('url', '')}")
+        lines.append("[End of Search Results]\n")
+        return "\n".join(lines)
+
+    block = _build(None)
+    if max_chars is None or len(block) <= max_chars:
+        return block
+    # Chars that are not snippet text (titles, URLs, markers) stay fixed;
+    # split what remains evenly across the snippets, floor 80 chars each.
+    overhead = len(block) - sum(len(r.get("snippet") or "") for r in results)
+    share = max(80, (max_chars - overhead) // max(1, len(results)))
+    return _build(share)
 
 
 def build_augmented_prompt(user_message, system_prefix="", search_results=None):
@@ -362,7 +396,7 @@ def build_augmented_prompt(user_message, system_prefix="", search_results=None):
         instruction = _OPINION_INSTRUCTION if mode == "opinion" else _FACTUAL_INSTRUCTION
         instruction = _extend_instruction(instruction, results, user_message)
         prompt = prompt_format.build_augmented(system_prefix, instruction, context_block, user_message)
-        prompt, context_block = _fit_prompt_to_budget(prompt, context_block)
+        prompt, context_block = _fit_prompt_to_budget(prompt, context_block, results)
     else:
         prompt = prompt_format.build_plain(system_prefix, user_message)
 
