@@ -32,6 +32,7 @@ from pollen.features.chat.utils import (
 )
 from pollen.features.chat.postprocessing import (
     _filter_cited_sources,
+    _normalize_citation_markers,
     _strip_orphan_markers,
     _renumber_citations,
     _strip_model_reference_list,
@@ -245,6 +246,7 @@ class ChatService:
                     # A model-written bibliography duplicates the source pills with
                     # fabricated details; drop it unless the user asked for one.
                     _hard_final = _strip_model_reference_list(_hard_final, len(rag_sources))
+                _hard_final = _normalize_citation_markers(_hard_final)
                 _hard_final = _strip_orphan_markers(_hard_final, len(rag_sources))
                 hard_stop_msg["final_text"] = _hard_final
                 if rag_sources:
@@ -423,6 +425,7 @@ class ChatService:
                         filtered_all = _strip_model_reference_list(filtered_all, len(rag_sources))
                     # Remove any [n] markers with no matching source so the
                     # reader never sees an orphaned citation marker.
+                    filtered_all = _normalize_citation_markers(filtered_all)
                     filtered_all = _strip_orphan_markers(filtered_all, len(rag_sources))
                     step_msg["final_text"] = filtered_all
                 if stop and rag_sources:

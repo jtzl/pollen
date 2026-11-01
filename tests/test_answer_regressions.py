@@ -21,6 +21,7 @@ sys.path.insert(0, str(REPO))
 
 from pollen.features.chat.postprocessing import (  # noqa: E402
     _filter_cited_sources,
+    _normalize_citation_markers,
     _renumber_citations,
     _strip_model_reference_list,
     _strip_orphan_markers,
@@ -84,6 +85,21 @@ class CitationNumbering(unittest.TestCase):
         text, cited = self._final("Plain answer, no citations.", SOURCES8)
         self.assertEqual(cited, [])
         self.assertEqual(text, "Plain answer, no citations.")
+
+    def test_source_prefix_markers_normalized(self):
+        # Production 2026-11-01: the model wrote '[Source: 3]', the parser saw
+        # no markers, and all 8 pills attached instead of the cited subset.
+        raw = "OpenAI news [Source: 3]. EU act (Sources: 1, 4). Plain sources: fine."
+        text = _normalize_citation_markers(raw)
+        self.assertEqual(text, "OpenAI news [3]. EU act [1, 4]. Plain sources: fine.")
+        final, cited = self._final(text, SOURCES8)
+        self.assertEqual(cited, ["S1", "S3", "S4"])
+        self.assertEqual(final, "OpenAI news [2]. EU act [1, 3]. Plain sources: fine.")
+
+    def test_prose_mentioning_sources_untouched(self):
+        for s in ("The sources above agree.", "See sources: the list below.",
+                  "I checked 3 sources for this."):
+            self.assertEqual(_normalize_citation_markers(s), s)
 
 
 class ReferenceListStripping(unittest.TestCase):

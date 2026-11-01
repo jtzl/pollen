@@ -992,6 +992,19 @@ def _renumber_citations(text, n_sources):
     return re.sub(pat, _repl, text)
 
 
+_SOURCE_MARKER_RE = re.compile(r"[\[(]\s*sources?\s*:?\s+([\d\s,]+?)\s*[\])]", re.IGNORECASE)
+
+
+def _normalize_citation_markers(text):
+    """The model sometimes writes citations as '[Source: 3]' or '(Sources: 1, 2)'
+    instead of '[3]' (seen live 2026-11-01 on a news question). Normalize them
+    to the plain bracket form BEFORE the orphan/subset/renumber passes, so the
+    cited-subset logic and the page's marker links recognize them."""
+    if not text:
+        return text
+    return _SOURCE_MARKER_RE.sub(lambda m: "[" + m.group(1).strip() + "]", text)
+
+
 def _strip_orphan_markers(text, n_sources):
     """Remove [n] citation markers whose index has no matching source (index
     out of range, or ALL markers when n_sources == 0), so the reader never sees
