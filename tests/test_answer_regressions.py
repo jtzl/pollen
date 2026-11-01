@@ -261,6 +261,17 @@ class ContextBudgetFitting(unittest.TestCase):
         self.assertLessEqual(len(block), 3200)  # share floor allows slight overshoot
         self.assertIn("[End of Search Results]", block)
 
+    def test_trim_weights_top_ranked_sources(self):
+        block = self.ns["format_context"](self.results, max_chars=3000)
+        lines = block.split("\n")
+        snippets = {}
+        for i, line in enumerate(lines):
+            m = re.match(r"^(\d)\. Result \d$", line)
+            if m:
+                snippets[int(m.group(1))] = lines[i + 1]
+        self.assertGreater(len(snippets[1]), len(snippets[8]) * 2)
+        self.assertGreater(len(snippets[2]), len(snippets[7]))
+
     def test_fit_rebuilds_with_every_source_present(self):
         fc, fit = self.ns["format_context"], self.ns["_fit_prompt_to_budget"]
         block = fc(self.results)

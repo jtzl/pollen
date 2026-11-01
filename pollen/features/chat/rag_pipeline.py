@@ -422,20 +422,23 @@ def format_context(results, max_chars=None):
     """Format search results into a context block for the LLM prompt.
 
     max_chars: optional cap on the whole block. When the full block is over
-    it, every snippet is trimmed to an even share so ALL sources stay in the
-    prompt with their [n] numbers intact; sources are never dropped from the
-    tail (the page numbers its pills from this same order).
+    it, every snippet is trimmed to a RANK-WEIGHTED share (results arrive in
+    final rank order, so source 1 keeps about 3x the room of the last one)
+    with an 80-char floor. ALL sources stay in the prompt with their [n]
+    numbers intact; sources are never dropped from the tail (the page
+    numbers its pills from this same order).
     """
     if not results:
         return ""
 
-    def _build(snippet_cap):
+    def _build(caps):
         lines = ["[Web Search Results]"]
         for i, r in enumerate(results, 1):
             snippet = r.get("snippet") or ""
-            if snippet_cap is not None and len(snippet) > snippet_cap:
-                cut = snippet[:snippet_cap].rsplit(" ", 1)[0]
-                snippet = (cut if len(cut) >= 60 else snippet[:snippet_cap]) + "…"
+            cap = caps[i - 1] if caps else None
+            if cap is not None and len(snippet) > cap:
+                cut = snippet[:cap].rsplit(" ", 1)[0]
+                snippet = (cut if len(cut) >= 60 else snippet[:cap]) + "…"
             lines.append(f"{i}. {r.get('title', '')}")
             lines.append(f"   {snippet}")
             lines.append(f"   Source: {r.get('url', '')}")
@@ -446,10 +449,15 @@ def format_context(results, max_chars=None):
     if max_chars is None or len(block) <= max_chars:
         return block
     # Chars that are not snippet text (titles, URLs, markers) stay fixed;
-    # split what remains evenly across the snippets, floor 80 chars each.
+    # split what remains across the snippets, weighted linearly from 1.5
+    # (top-ranked) down to 0.5 (last), floor 80 chars each.
     overhead = len(block) - sum(len(r.get("snippet") or "") for r in results)
-    share = max(80, (max_chars - overhead) // max(1, len(results)))
-    return _build(share)
+    avail = max(0, max_chars - overhead)
+    n = len(results)
+    weights = [1.5 - (i / max(1, n - 1)) for i in range(n)] if n > 1 else [1.0]
+    wsum = sum(weights)
+    caps = [max(80, int(avail * w / wsum)) for w in weights]
+    return _build(caps)
 
 
 def build_augmented_prompt(user_message, system_prefix="", search_results=None):
