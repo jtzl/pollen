@@ -265,6 +265,50 @@ class ContextBudgetFitting(unittest.TestCase):
         self.assertIn("[End of Search Results]", fitted)
 
 
+def _load_recency_helper():
+    """_recency_window lives in rag_retrieval.py behind the retrieval imports;
+    load it and its regexes by source extraction."""
+    src = (REPO / "pollen" / "features" / "chat" / "retrieval" / "rag_retrieval.py").read_text(encoding="utf-8")
+    ns = {"_re": re, "time": time}
+    for name in ("_RECENCY_WEEK_RE", "_RECENCY_MONTH_RE", "_RECENCY_YEAR_RE"):
+        m = re.search(r"^%s = .*?(?=^\S)" % name, src, re.S | re.M)
+        if not m:
+            raise AssertionError("constant %s not found in rag_retrieval.py (renamed?)" % name)
+        exec(m.group(0), ns)
+    m = re.search(r"^def _recency_window\(.*?(?=^\S)", src, re.S | re.M)
+    if not m:
+        raise AssertionError("_recency_window not found in rag_retrieval.py (renamed?)")
+    exec(m.group(0), ns)
+    return ns["_recency_window"]
+
+
+class RecencyWindow(unittest.TestCase):
+    """Time-sensitive queries get a ddgs window; timeless ones must get None."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.win = staticmethod(_load_recency_helper())
+
+    def test_news_query_gets_week(self):
+        self.assertEqual(self.win("latest news about artificial intelligence"), "w")
+        self.assertEqual(self.win("what happened today in ukraine"), "w")
+
+    def test_latest_gets_month(self):
+        self.assertEqual(self.win("latest iphone model"), "m")
+        self.assertEqual(self.win("just released linux kernel"), "m")
+
+    def test_recent_and_current_year_get_year(self):
+        self.assertEqual(self.win("recent studies on intermittent fasting"), "y")
+        self.assertEqual(self.win("inflation rate %d" % time.localtime().tm_year), "y")
+
+    def test_timeless_queries_get_none(self):
+        for q in ("why do cats purr",
+                  "what caused the fall of the roman empire",
+                  "effects of sleep deprivation on memory",
+                  "inflation rate 2019"):
+            self.assertIsNone(self.win(q), q)
+
+
 class FollowupSearchQuery(unittest.TestCase):
     """Follow-ups must search with the previous question's topic words; a
     self-contained question must pass through UNCHANGED."""

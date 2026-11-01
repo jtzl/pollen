@@ -136,6 +136,37 @@ def _reformulate_query(query):
     return variants[:2]  # capped at 2 for token budget
 
 
+# --- Recency detection -------------------------------------------------------
+# Time-sensitive queries pass a ddgs timelimit window to the node search, so
+# "latest news on X" stops ranking a 2019 page level with yesterday's. Tiers
+# err wide (a too-narrow window starves results; search() falls back to an
+# unfiltered pass when the windowed one comes back thin).
+
+_RECENCY_WEEK_RE = _re.compile(
+    r"\b(news|headlines?|breaking|today|tonight|yesterday|this week)\b", _re.IGNORECASE)
+_RECENCY_MONTH_RE = _re.compile(
+    r"\b(latest|newest|right now|currently|this month|just (released|announced|launched|published))\b",
+    _re.IGNORECASE)
+_RECENCY_YEAR_RE = _re.compile(
+    r"\b(recent(ly)?|current|this year|update[sd]?)\b", _re.IGNORECASE)
+
+
+def _recency_window(query):
+    """ddgs timelimit for a query: 'w', 'm', 'y' or None (no time filter).
+
+    The narrowest matching tier wins. A mention of the current year also
+    maps to 'y' (asking about 2026 in 2026 is a freshness signal; a past
+    year is not)."""
+    q = query or ""
+    if _RECENCY_WEEK_RE.search(q):
+        return "w"
+    if _RECENCY_MONTH_RE.search(q):
+        return "m"
+    if _RECENCY_YEAR_RE.search(q) or str(time.localtime().tm_year) in q:
+        return "y"
+    return None
+
+
 def _title_dedupe_key(title):
     """Normalized key for cross-source duplicate detection: the same paper
     arrives as a scholarly result ("Title (Journal, 2022)"), a publisher page
@@ -207,8 +238,9 @@ def search(query, max_results=None):
             query = query.strip()
         variants = _reformulate_query(query)
         per_variant = max(3, -(-RAG_CANDIDATE_POOL // max(1, len(variants))))  # ceil div: pull a bigger pool for the reranker to select from
-        log.info("RAG search starting: query=%r, %d variants=%r, filter=%r, max_results=%d, per_variant=%d",
-                 query, len(variants), variants, source_filter.strip(), max_results, per_variant)
+        timelimit = _recency_window(query)
+        log.info("RAG search starting: query=%r, %d variants=%r, filter=%r, max_results=%d, per_variant=%d, timelimit=%s",
+                 query, len(variants), variants, source_filter.strip(), max_results, per_variant, timelimit)
 
         # Scholarly providers (OpenAlex, PubMed, arXiv...) are queried from the hub
         # in the background while the slower node search runs, then merged into
@@ -224,7 +256,7 @@ def search(query, max_results=None):
                 for v in variants:
                     fq = v  # curated site: filter no longer forced onto node query
                     try:
-                        raw = node_search(fq, per_variant)
+                        raw = node_search(fq, per_variant, timelimit=timelimit)
                     except Exception as ve:
                         log.warning("RAG DDG variant failed %r: %s", v, ve)
                         continue
@@ -255,6 +287,32 @@ def search(query, max_results=None):
         elapsed = time.time() - start
         if elapsed > RAG_SEARCH_TIMEOUT:
             log.warning("RAG search slow (%.1fs > %ds) for query=%r", elapsed, RAG_SEARCH_TIMEOUT, query)
+
+        # A recency window that starves results is worse than no window: top
+        # up from an unfiltered pass (recent hits stay first in the list).
+        if timelimit and len(results) < min(3, max_results):
+            log.info("RAG recency window %r thin (%d results), topping up unfiltered", timelimit, len(results))
+            for v in variants:
+                try:
+                    extra = node_search(v, per_variant)
+                except Exception as ve:
+                    log.warning("RAG recency top-up variant failed %r: %s", v, ve)
+                    continue
+                for r in extra:
+                    url = r.get("href", "")
+                    if not url or url in seen_urls or is_blocked_domain(url):
+                        seen_urls.add(url)
+                        continue
+                    seen_urls.add(url)
+                    results.append({
+                        "title": _clean_search_title(r.get("title", "")),
+                        "url": url,
+                        "snippet": r.get("body", ""),
+                    })
+                    if len(results) >= max_results:
+                        break
+                if len(results) >= max_results:
+                    break
 
         # Fallback: if curated-source filter returned nothing across all variants, retry without the filter
         if not results and source_filter:

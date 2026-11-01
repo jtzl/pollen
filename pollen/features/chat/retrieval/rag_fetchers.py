@@ -78,16 +78,22 @@ def fetch_wikipedia(query, limit=2):
         return []
 
 
-def node_search(query, max_results):
+def node_search(query, max_results, timelimit=None):
     """Run web search on a residential contributor node via the reverse SSH tunnel.
 
     The node runs DDGS from a residential IP that search engines do not block
     (this EC2 datacenter IP gets 403/429). Returns a list of dicts in the ddgs
     raw shape {"href", "title", "body"} so the existing search() loop consumes
     them unchanged. Returns [] on any error/timeout/nonzero exit/empty output.
+
+    timelimit: ddgs recency window ('d'/'w'/'m'/'y') for time-sensitive
+    queries, or None for no filter. The node script treats any other value
+    as None, so this stays compatible either way.
     """
     try:
         remote = "~/pollen-search-env/bin/python3 ~/pollen_search.py " + shlex.quote(query) + " " + str(int(max_results))
+        if timelimit in ("d", "w", "m", "y"):
+            remote += " " + timelimit
         cmd = [
             "ssh", "-p", "31333",
             "-o", "BatchMode=yes",
