@@ -747,6 +747,18 @@ async def api_v1_generate(request: Request):
             form = {}
     req = _merge_request_args(query, form, body)
 
+    # External callers must send an actual question. An empty body with a
+    # valid key used to start a full generation from nothing (seen
+    # 2026-11-06), burning a minute of swarm time per junk request.
+    if _external:
+        _inputs = req.get("inputs")
+        if not isinstance(_inputs, str) or not _inputs.strip():
+            return FlaskJSONResponse(
+                {"ok": False, "error": "inputs (the question text) is required"}, status_code=400)
+        if len(_inputs) > 16000:
+            return FlaskJSONResponse(
+                {"ok": False, "error": "inputs too long (max 16000 characters)"}, status_code=400)
+
     model_name = req.get("model") or config.MODEL_REPO
     model, tokenizer, backend_config = models[model_name]
     service = ChatService(model, tokenizer, backend_config, config)
