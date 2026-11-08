@@ -293,6 +293,59 @@ else
     fi
 fi
 
+# --- 3.7) End-to-end generation probe ---
+# The checks above never exercise the model path: on 2026-11-08 the app's
+# long-lived Petals client wedged (MissingBlocksError on every generation)
+# while every check here stayed green and users got the amber bar. This stage
+# asks the API for a 4-token generation with search off (a few seconds of
+# swarm time per cycle). TWO consecutive failures WITH full block coverage is
+# exactly that wedge signature, and restarting pollen-fastapi is the known-
+# safe fix (swarm-troubleshooting skill, Issue 5). Any other combination is
+# detect+log only (stage 3.5 owns real coverage problems).
+GENPROBE_FAILCOUNT_FILE="/tmp/pollen_watchdog_genprobe_failcount"
+GENPROBE_GRACE=240   # skip while pollen-fastapi is still starting up
+FASTAPI_START_TS=$(systemctl show -p ActiveEnterTimestamp --value pollen-fastapi 2>/dev/null)
+FASTAPI_START_EPOCH=$(date -d "$FASTAPI_START_TS" +%s 2>/dev/null || echo 0)
+FASTAPI_UPTIME=$(( $(date +%s) - FASTAPI_START_EPOCH ))
+if [ "$FASTAPI_UPTIME" -lt "$GENPROBE_GRACE" ]; then
+    log "OK: generation probe skipped (pollen-fastapi uptime ${FASTAPI_UPTIME}s < ${GENPROBE_GRACE}s)"
+    rm -f "$GENPROBE_FAILCOUNT_FILE"
+else
+    GENPROBE_OK=$(curl -s --max-time 90 -X POST http://localhost:5001/api/v1/generate \
+        -H "Content-Type: application/json" \
+        -d '{"inputs": "Say pong.", "rag": "off", "max_new_tokens": 4}' 2>/dev/null \
+        | python3 -c "
+import sys, json
+try:
+    print('yes' if json.load(sys.stdin).get('ok') else 'no')
+except Exception:
+    print('no')" 2>/dev/null)
+    if [ "$GENPROBE_OK" = "yes" ]; then
+        log "OK: generation probe produced tokens end to end"
+        rm -f "$GENPROBE_FAILCOUNT_FILE"
+    else
+        GEN_STREAK=$(( $(cat "$GENPROBE_FAILCOUNT_FILE" 2>/dev/null || echo 0) + 1 ))
+        echo "$GEN_STREAK" > "$GENPROBE_FAILCOUNT_FILE"
+        if [ "$GEN_STREAK" -lt 2 ]; then
+            log "WARN: generation probe failed (reading $GEN_STREAK/2) - deferring"
+        elif [ -n "${COV_NOW:-}" ] && [ -n "${COV_TOT:-}" ] && [ "$COV_NOW" -ge "$COV_TOT" ] 2>/dev/null; then
+            log "FAIL: generations failing for $GEN_STREAK consecutive checks with FULL coverage (wedged Petals client). Restarting pollen-fastapi..."
+            sudo systemctl restart pollen-fastapi
+            if [ $? -eq 0 ]; then
+                log "RESTART: pollen-fastapi restarted to clear the wedged Petals client"
+                record_failure "pollen-fastapi" "Generations failing with full block coverage (wedged Petals client)" "Restarted pollen-fastapi (success)"
+            else
+                log "ERROR: Failed to restart pollen-fastapi for wedged-client recovery"
+                record_failure "pollen-fastapi" "Generations failing with full block coverage" "Restart attempted but failed"
+            fi
+            rm -f "$GENPROBE_FAILCOUNT_FILE"
+        else
+            log "CRITICAL: generations failing for $GEN_STREAK consecutive checks and coverage is NOT full - real swarm problem, nothing restarted (stage 3.5 owns coverage alerts)"
+            record_failure "generation-probe" "Generations failing $GEN_STREAK consecutive checks; coverage ${COV_NOW:-?}/${COV_TOT:-?}" "DETECT+LOG only; see coverage alerts"
+        fi
+    fi
+fi
+
 # --- 4) Check DHT ---
 if ! systemctl is-active --quiet petals-dht; then
     log "FAIL: petals-dht is not running. Restarting..."
