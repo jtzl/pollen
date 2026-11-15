@@ -767,6 +767,70 @@ async def api_v1_generate(request: Request):
     return FlaskJSONResponse(result)
 
 
+# EXPERIMENTAL (2026-11-16): one-line summaries via the NCM service on the
+# 4090 (Stanford HazyResearch/ncm xsum model, ncm-server.service, reached
+# through its reverse tunnel). Works best on long news-style text; the
+# released checkpoints are research-grade, so summaries can be unreliable.
+# Deliberately NOT called from the chat flow for that reason.
+NCM_SUMMARIZE_URL = os.getenv("NCM_SUMMARIZE_URL", "http://127.0.0.1:31341/summarize")
+NCM_SUMMARIZE_TIMEOUT = int(os.getenv("NCM_SUMMARIZE_TIMEOUT", "60"))
+
+
+def _ncm_summarize_blocking(text):
+    import requests
+
+    resp = requests.post(NCM_SUMMARIZE_URL, json={"text": text}, timeout=NCM_SUMMARIZE_TIMEOUT)
+    resp.raise_for_status()
+    return resp.json()
+
+
+@app.post("/api/v1/summarize")
+async def api_v1_summarize(request: Request):
+    """Fast extreme summarization of a long text via NCM on the 4090.
+    Same key and rate-limit gate as /api/v1/generate; no swarm involvement."""
+    config = app.state.gen_config
+
+    _client, _external = _api_client(request)
+    if _external:
+        _keys = getattr(config, "API_KEYS", frozenset()) if config else frozenset()
+        if _keys:
+            _auth = request.headers.get("authorization", "")
+            _key = _auth[7:].strip() if _auth.lower().startswith("bearer ") else request.headers.get("x-api-key", "")
+            if _key not in _keys:
+                return FlaskJSONResponse(
+                    {"ok": False, "error": "missing or invalid API key"}, status_code=401)
+        if _api_rate_limited(_client, getattr(config, "API_RATE_LIMIT", 6)):
+            log.warning("api_v1_summarize rate limited client=%s", _client)
+            return FlaskJSONResponse(
+                {"ok": False, "error": "rate limited, try again in a minute"}, status_code=429)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    text = (body or {}).get("text") if isinstance(body, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        return FlaskJSONResponse(
+            {"ok": False, "error": "text (the content to summarize) is required"}, status_code=400)
+    if len(text) > 16000:
+        return FlaskJSONResponse(
+            {"ok": False, "error": "text too long (max 16000 characters)"}, status_code=400)
+
+    try:
+        result = await run_in_threadpool(_ncm_summarize_blocking, text.strip())
+    except Exception as e:
+        log.warning("api_v1_summarize NCM service unreachable: %s", e)
+        return FlaskJSONResponse(
+            {"ok": False, "error": "summarizer offline"}, status_code=503)
+    return FlaskJSONResponse({
+        "ok": bool(result.get("ok")),
+        "summary": result.get("summary"),
+        "gen_seconds": result.get("gen_seconds"),
+        "model": "ncm-xsum (experimental)",
+        "error": result.get("error"),
+    })
+
+
 # ---------------------------------------------------------------------------
 # General static assets (chat.js, style.css, marked.min.js, logo.svg, ...).
 # Mounted LAST, on purpose: Starlette matches routes in registration order, so
