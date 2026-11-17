@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link href="./static/style.css?v=24" rel="stylesheet">
+  <link href="./static/style.css?v=25" rel="stylesheet">
   <!-- Marked.js for Markdown rendering -->
 </head>
 <body class="bg-gray-50 dark:bg-surface-300 text-gray-800 dark:text-gray-200 h-screen flex overflow-hidden chat-empty">
@@ -69,7 +69,7 @@
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200" id="header-title">{{ app_name }}</span>
             <span class="hidden sm:inline text-[11px] text-gray-500 tracking-wide" title="OI: Organized Ideas">Organized Ideas</span>
           </div>
-          <span class="model-badge text-[10px] px-1.5 py-0.5 font-medium">{{ model_badge }}</span>
+          <span class="model-badge text-[10px] px-1.5 py-0.5 font-medium" title="{{ model_badge }} model running on community GPUs, not a data center">{{ model_badge }}</span>
         </div>
       </div>
       <div class="flex items-center gap-2">
@@ -107,10 +107,11 @@
 
         <!-- Typing Indicator -->
         <div id="typing-indicator" class="hidden mt-6">
-          <div class="flex items-start gap-3">
+          <div class="flex items-center gap-3">
             <div class="typing-dots px-4 py-3 rounded-2xl rounded-bl-md bg-gray-100 dark:bg-panel-200 border border-black/10 dark:border-white/5">
               <span class="dot"></span><span class="dot"></span><span class="dot"></span>
             </div>
+            <span id="typing-status" class="typing-status"></span>
           </div>
         </div>
       </div>
@@ -575,6 +576,6 @@
     const defaultModel = {{ default_model.backend.key|tojson|safe }};
   </script>
   <script src="/static/marked.min.js?v=1"></script>
-  <script src="./static/chat.js?v=32"></script>
+  <script src="./static/chat.js?v=33"></script>
 </body>
 </html>

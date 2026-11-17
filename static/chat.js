@@ -366,7 +366,7 @@ function addMessage(role, content, time) {
   meta.className = 'flex items-center gap-2 mt-1 px-1';
 
   var tsEl = document.createElement('span');
-  tsEl.className = 'text-[10px] text-gray-600';
+  tsEl.className = 'msg-time text-[10px] text-gray-600';
   tsEl.textContent = formatTime(ts);
   meta.appendChild(tsEl);
 
@@ -578,7 +578,7 @@ function sendMessage() {
   var msgRefs = addMessage('assistant', '', new Date());
   lastAssistantCol = msgRefs.colEl;
 
-  showTyping();
+  startWaitPhase();
   setGenerating(true);
   generatedTokens = 0;
   updateTokenCounter();
@@ -611,6 +611,7 @@ function stopGenerating() {
   }
   forceStop = false;
   setGenerating(false);
+  endWaitPhase();
   tokenCount = 0; totalElapsed = 0;
   hideTokenCounter();
   enableInput();
@@ -633,13 +634,15 @@ function checkStopSequences(accumulated) {
 function receiveReplica(prompt) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     openSession().then(function() { receiveReplica(prompt); }).catch(function(err) {
-      setGenerating(false); hideTyping(); enableInput(); hideTokenCounter();
+      setGenerating(false); endWaitPhase(); enableInput(); hideTokenCounter();
       showError('Connection failed: ' + err);
     });
     return;
   }
 
-  hideTyping();
+  // The typing indicator deliberately stays up here: the server is about to
+  // spend 15-40s searching and prefilling before the first token arrives.
+  // endWaitPhase() clears it on the first frame, an error, or Stop.
   var startTime = Date.now();
 
   ws.send(JSON.stringify({
@@ -659,7 +662,9 @@ function receiveReplica(prompt) {
   ws.onmessage = function(event) {
     var response;
     try { response = JSON.parse(event.data); }
-    catch (e) { setGenerating(false); enableInput(); hideTokenCounter(); showError('Invalid response'); return; }
+    catch (e) { setGenerating(false); endWaitPhase(); enableInput(); hideTokenCounter(); showError('Invalid response'); return; }
+
+    if (awaitingFirstToken && response.ok) endWaitPhase();
 
     if (!response.ok) {
       var errMsg = response.traceback || '';
@@ -677,7 +682,7 @@ function receiveReplica(prompt) {
         // session length. That is a capacity fact, not a failure -- say so
         // plainly instead of showing a scary generic error.
         showError('This conversation has reached its maximum length. Please start a New Chat to continue.', 'warning');
-        setGenerating(false); enableInput(); hideTokenCounter();
+        setGenerating(false); endWaitPhase(); enableInput(); hideTokenCounter();
         return;
       }
       if (response.code === 'cluster_unavailable' || errMsg.indexOf('MissingBlocksError') >= 0) {
@@ -689,7 +694,7 @@ function receiveReplica(prompt) {
       } else {
         showError('Generation error. Please try again.');
       }
-      setGenerating(false); enableInput(); hideTokenCounter();
+      setGenerating(false); endWaitPhase(); enableInput(); hideTokenCounter();
       return;
     }
 
@@ -990,6 +995,36 @@ function formatUptime(seconds) {
 
 function showTyping() { typingIndicator.classList.remove('hidden'); scrollToBottom(); }
 function hideTyping() { typingIndicator.classList.add('hidden'); }
+
+// ---- Wait-phase status (what Pollen is doing before the first token) ----
+// The server is silent while it searches, ranks and reads sources, then
+// prefills the prompt; that used to look like nothing happening. These are
+// timed stage labels only: the streaming protocol is untouched.
+var typingStatusEl = document.getElementById('typing-status');
+var statusTimers = [];
+var awaitingFirstToken = false;
+
+function setTypingStatus(text) {
+  if (typingStatusEl) typingStatusEl.textContent = text;
+}
+
+function startWaitPhase() {
+  awaitingFirstToken = true;
+  for (var i = 0; i < statusTimers.length; i++) clearTimeout(statusTimers[i]);
+  statusTimers = [];
+  setTypingStatus('Searching the web…');
+  statusTimers.push(setTimeout(function() { setTypingStatus('Reading sources…'); }, 9000));
+  statusTimers.push(setTimeout(function() { setTypingStatus('Writing the answer…'); }, 22000));
+  showTyping();
+}
+
+function endWaitPhase() {
+  awaitingFirstToken = false;
+  for (var i = 0; i < statusTimers.length; i++) clearTimeout(statusTimers[i]);
+  statusTimers = [];
+  setTypingStatus('');
+  hideTyping();
+}
 
 function setGenerating(v) {
   generating = v;
