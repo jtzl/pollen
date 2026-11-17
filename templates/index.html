@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link href="./static/style.css?v=23" rel="stylesheet">
+  <link href="./static/style.css?v=24" rel="stylesheet">
   <!-- Marked.js for Markdown rendering -->
 </head>
 <body class="bg-gray-50 dark:bg-surface-300 text-gray-800 dark:text-gray-200 h-screen flex overflow-hidden chat-empty">
@@ -218,9 +218,8 @@
             oninput="onInputChange(this)"></textarea>
           <div class="flex items-center gap-1 flex-shrink-0 pb-0.5">
             <span id="char-count" class="text-[10px] text-gray-600 tabular-nums mr-1 hidden">0</span>
-            <button id="stop-btn" onclick="stopGenerating()" class="hidden flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-medium transition-colors animate-pulse" title="Stop generating">
+            <button id="stop-btn" onclick="stopGenerating()" class="hidden items-center justify-center rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors" title="Stop generating">
               <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-              Stop
             </button>
             <button id="send-btn" onclick="sendMessage()"
               class="p-1.5 rounded-lg bg-accent-500 hover:bg-accent-600 text-white transition-all disabled:opacity-20 disabled:cursor-not-allowed disabled:hover:bg-accent-500"

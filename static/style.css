@@ -815,8 +815,15 @@ a.text-accent-400 { color: #0d0d0d !important; }
 #send-btn { background: #0d0d0d !important; color: #ffffff !important; width: 36px; height: 36px; border-radius: 9999px !important; display: flex !important; align-items: center; justify-content: center; }
 #send-btn:hover:not(:disabled) { background: #3d3d3d !important; }
 #send-btn:disabled { background: #d9d9d9 !important; opacity: 1 !important; }
-#stop-btn { background: #0d0d0d !important; border-radius: 9999px !important; animation: none !important; }
+/* While generating, chat.js swaps send for stop; the forced display above
+   must not override the hidden class or both buttons show at once. */
+#send-btn.hidden { display: none !important; }
+/* Stop = the same 36px black circle in the same spot, square icon only */
+#stop-btn { background: #0d0d0d !important; color: #ffffff !important; width: 36px; height: 36px; border-radius: 9999px !important; display: flex !important; align-items: center; justify-content: center; padding: 0 !important; animation: none !important; }
+#stop-btn.hidden { display: none !important; }
 #stop-btn:hover { background: #3d3d3d !important; }
+/* Token counter and tok/s were running together ("21/15000.9 tok/s") */
+#token-counter + #speed-info { margin-left: 8px; }
 
 /* Hint row + privacy notice under the composer */
 .composer-hints { margin-top: 8px !important; }
