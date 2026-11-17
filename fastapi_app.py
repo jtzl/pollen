@@ -831,6 +831,49 @@ async def api_v1_summarize(request: Request):
     })
 
 
+# The web page's summarize box (JT's call 2026-11-18: NCM visible on the site,
+# marked experimental). Keyless like /api/generate-image, because the page
+# cannot hold a secret; the gate is its own per-client rate limit.
+SUMMARIZE_RATE_LIMIT = int(os.getenv("SUMMARIZE_RATE_LIMIT", "4"))
+
+
+@app.post("/api/summarize")
+async def api_summarize(request: Request):
+    """Summarize pasted text for the web UI via the NCM service on the 4090.
+    Same proxy and limits as /api/v1/summarize, minus the API key."""
+    _client, _external = _api_client(request)
+    if _external and _api_rate_limited("sum:" + _client, SUMMARIZE_RATE_LIMIT):
+        log.warning("api_summarize rate limited client=%s", _client)
+        return FlaskJSONResponse(
+            {"ok": False, "error": "rate limited, try again in a minute"}, status_code=429)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    text = (body or {}).get("text") if isinstance(body, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        return FlaskJSONResponse(
+            {"ok": False, "error": "text (the content to summarize) is required"}, status_code=400)
+    if len(text) > 16000:
+        return FlaskJSONResponse(
+            {"ok": False, "error": "text too long (max 16000 characters)"}, status_code=400)
+
+    try:
+        result = await run_in_threadpool(_ncm_summarize_blocking, text.strip())
+    except Exception as e:
+        log.warning("api_summarize NCM service unreachable: %s", e)
+        return FlaskJSONResponse(
+            {"ok": False, "error": "summarizer offline"}, status_code=503)
+    return FlaskJSONResponse({
+        "ok": bool(result.get("ok")),
+        "summary": result.get("summary"),
+        "gen_seconds": result.get("gen_seconds"),
+        "model": "ncm-xsum (experimental)",
+        "error": result.get("error"),
+    })
+
+
 # ---------------------------------------------------------------------------
 # General static assets (chat.js, style.css, marked.min.js, logo.svg, ...).
 # Mounted LAST, on purpose: Starlette matches routes in registration order, so
