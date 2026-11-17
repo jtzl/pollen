@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link href="./static/style.css?v=22" rel="stylesheet">
+  <link href="./static/style.css?v=23" rel="stylesheet">
   <!-- Marked.js for Markdown rendering -->
 </head>
 <body class="bg-gray-50 dark:bg-surface-300 text-gray-800 dark:text-gray-200 h-screen flex overflow-hidden chat-empty">
@@ -142,18 +142,25 @@
           class="w-full bg-gray-100 dark:bg-panel-100 rounded-lg border border-black/10 dark:border-white/10 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 placeholder-gray-500 outline-none focus:border-accent-500/50 transition-colors resize-y"></textarea>
         <div class="flex items-start justify-between gap-3 mt-1.5">
           <span class="text-[10px] text-gray-500 leading-relaxed">Experimental research model (NCM) running on a community GPU, separate from chat. Works best on full-length news-style articles; short text confuses it and results can be rough.</span>
-          <button id="summarize-btn" onclick="summarizeArticle()"
-            class="px-4 py-2 rounded-lg bg-accent-500 hover:bg-accent-600 text-white text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
-            Summarize
-          </button>
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button id="summarize-clear" onclick="clearSummarize()" class="sum-tool">Clear</button>
+            <button id="summarize-btn" onclick="summarizeArticle()"
+              class="px-4 py-2 rounded-lg bg-accent-500 hover:bg-accent-600 text-white text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
+              Summarize
+            </button>
+          </div>
         </div>
         <div id="summarize-loading" class="hidden mt-3 flex items-center gap-3">
           <div class="typing-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
           <span class="text-sm text-gray-600 dark:text-gray-400">Summarizing...</span>
         </div>
         <div id="summarize-result" class="hidden mt-3">
-          <p id="summarize-output" class="text-sm text-gray-800 dark:text-gray-100 leading-relaxed"></p>
-          <span id="summarize-elapsed" class="text-[10px] text-gray-500"></span>
+          <div class="flex items-center justify-between mb-1">
+            <span class="sum-label">SUMMARY</span>
+            <button id="summarize-copy" onclick="copySummary()" class="sum-tool">Copy</button>
+          </div>
+          <div class="sum-card"><p id="summarize-output"></p></div>
+          <div><span id="summarize-elapsed" class="text-[10px] text-gray-500"></span></div>
         </div>
         <div id="summarize-error" class="hidden mt-3 text-sm text-red-400"></div>
       </div>
@@ -536,6 +543,34 @@
         errorEl.textContent = 'Network error: ' + err.message;
         errorEl.classList.remove('hidden');
       });
+    }
+
+    function clearSummarize() {
+      var inputEl = document.getElementById('summarize-input');
+      inputEl.value = '';
+      document.getElementById('summarize-result').classList.add('hidden');
+      document.getElementById('summarize-error').classList.add('hidden');
+      inputEl.focus();
+    }
+
+    function copySummary() {
+      var text = document.getElementById('summarize-output').textContent;
+      if (!text) return;
+      var done = function() {
+        var b = document.getElementById('summarize-copy');
+        b.textContent = 'Copied';
+        setTimeout(function() { b.textContent = 'Copy'; }, 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function() {});
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) {}
+        document.body.removeChild(ta);
+      }
     }
     const modelConfigs = {{ model_config_json|safe }};
     const defaultModel = {{ default_model.backend.key|tojson|safe }};
