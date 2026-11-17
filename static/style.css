@@ -833,6 +833,13 @@ a.text-accent-400 { color: #0d0d0d !important; }
 /* Wait-phase status beside the typing dots */
 .typing-status { font-size: 13px; color: #8f8f8f; }
 
+/* Header dropdown menu (all tools and modals live here) */
+#header-menu { background: #ffffff; border: 1px solid #ececec; box-shadow: 0 2px 6px rgba(0,0,0,0.05), 0 12px 32px rgba(0,0,0,0.10); }
+.hmenu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 14px; font-size: 13.5px; color: #0d0d0d; text-align: left; background: none; border: 0; cursor: pointer; }
+.hmenu-item:hover { background: #f0f0f0; }
+.hmenu-item svg { width: 16px; height: 16px; flex-shrink: 0; color: #5d5d5d; }
+.hmenu-tag { font-size: 10px; color: #5d5d5d; background: #f0f0f0; border: 1px solid #e3e3e3; border-radius: 999px; padding: 1px 7px; margin-left: auto; }
+
 /* Hint row + privacy notice under the composer */
 .composer-hints { margin-top: 8px !important; }
 .composer-hints span, .privacy-notice span { font-size: 12px !important; color: #8f8f8f !important; }
